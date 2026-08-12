@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "packed": {
+      "command": ".venv/bin/python",
+      "args": ["-m", "packed.server"]
+    }
+  }
+}
