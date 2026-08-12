@@ -228,11 +228,11 @@ class TestServiceRateLimiter:
         limiter = _ServiceRateLimiter()
         # Use a known service
         start = time.monotonic()
-        await limiter.wait("LDA")  # 1.0s interval
+        await limiter.wait("LDA")  # 0.6s interval
         await limiter.wait("LDA")
         elapsed = time.monotonic() - start
-        # Second call should have waited ~1.0s
-        assert elapsed >= 0.9
+        # Second call should have waited ~0.6s
+        assert elapsed >= 0.5
 
     @pytest.mark.asyncio
     async def test_different_services_independent(self):

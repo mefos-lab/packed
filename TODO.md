@@ -15,10 +15,12 @@ Phased build order, per the design doc this repo was scaffolded from.
 - [ ] Add independent expenditures
 - [ ] Add committee-to-committee transfers (leadership PAC / JFC tracing)
 
-## 3. LDA (lobbying)
-- [ ] `packed/lda_client.py` — registrations (LD-1), quarterly activity (LD-2)
-- [ ] Lobbyist political contributions (LD-203) — the core lobbying↔contribution link
-- [ ] Add `LDA` tools to server.py
+## ~~3. LDA (lobbying)~~ ✓
+- ~~`packed/lda_client.py` — filings (LD-1/LD-2), registrants, clients~~ ✓
+- ~~Lobbyist political contributions (LD-203) — the core lobbying↔contribution link~~ ✓
+- ~~Add `LDA` tools to server.py~~ ✓
+- All 6 client methods verified against the live API 2026-08-12
+- Rate limit confirmed from live OpenAPI schema (120/min authenticated) — not a conservative guess like the others
 
 ## 4. Detection patterns
 Candidates from the design doc — build once phases 2–3 have real data to test against:

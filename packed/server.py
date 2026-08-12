@@ -10,6 +10,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from .openfec_client import OpenFECClient
+from .lda_client import LDAClient
 from .errors import ServiceTracker, api_call
 
 
@@ -31,6 +32,9 @@ server = Server("packed")
 
 _fec_key = os.environ.get("OPENFEC_API_KEY", "").strip()
 fec_client = OpenFECClient(api_key=_fec_key) if _fec_key else None
+
+_lda_key = os.environ.get("LDA_API_KEY", "").strip()
+lda_client = LDAClient(api_key=_lda_key) if _lda_key else None
 
 
 def _not_configured(source: str, env_var: str) -> list[TextContent]:
@@ -133,6 +137,93 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+
+        # =====================================================================
+        # LDA (Lobbying Disclosure Act) tools
+        # =====================================================================
+        Tool(
+            name="lda_search_filings",
+            description=(
+                "Search LD-1 lobbying registrations and LD-2 quarterly activity "
+                "filings by registrant, client, or lobbyist name. At least one "
+                "filter should be set."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "registrant_name": {"type": "string", "description": "Lobbying firm/individual name (optional)"},
+                    "client_name": {"type": "string", "description": "Lobbying client name (optional)"},
+                    "lobbyist_name": {"type": "string", "description": "Individual lobbyist name (optional)"},
+                    "filing_year": {"type": "integer", "description": "Filing year, e.g. 2026 (optional)"},
+                    "filing_type": {"type": "string", "description": "Filing type code, e.g. 'RR' (registration), 'Q1'-'Q4' (quarterly) (optional)"},
+                    "filing_period": {"type": "string", "description": "Filing period code (optional)"},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="lda_get_filing",
+            description="Get a single LDA filing's full record by its UUID.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "filing_uuid": {"type": "string", "description": "Filing UUID (from lda_search_filings)"},
+                },
+                "required": ["filing_uuid"],
+            },
+        ),
+        Tool(
+            name="lda_search_contributions",
+            description=(
+                "Search LD-203 contribution reports — lobbyist political "
+                "contributions. This is the link between lobbying activity "
+                "and campaign finance. At least one filter should be set."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "registrant_name": {"type": "string", "description": "Lobbying firm/individual name (optional)"},
+                    "lobbyist_name": {"type": "string", "description": "Individual lobbyist name (optional)"},
+                    "contribution_contributor": {"type": "string", "description": "Name of the contributor (optional)"},
+                    "filing_year": {"type": "integer", "description": "Filing year, e.g. 2026 (optional)"},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="lda_search_registrants",
+            description="Search LDA registrants (lobbying firms/individuals) by name.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "registrant_name": {"type": "string", "description": "Registrant name to search for"},
+                },
+                "required": ["registrant_name"],
+            },
+        ),
+        Tool(
+            name="lda_get_registrant",
+            description="Get a single LDA registrant's full record by ID.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "registrant_id": {"type": "integer", "description": "Registrant ID (from lda_search_registrants)"},
+                },
+                "required": ["registrant_id"],
+            },
+        ),
+        Tool(
+            name="lda_search_clients",
+            description="Search LDA lobbying clients by name, optionally scoped to a registrant.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "client_name": {"type": "string", "description": "Client name to search for (optional)"},
+                    "registrant_id": {"type": "integer", "description": "Scope to a specific registrant ID (optional)"},
+                },
+                "required": [],
+            },
+        ),
     ]
 
 
@@ -143,9 +234,15 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         "fec_search_committees", "fec_get_committee",
         "fec_search_contributions",
     }
+    _lda_tools = {
+        "lda_search_filings", "lda_get_filing", "lda_search_contributions",
+        "lda_search_registrants", "lda_get_registrant", "lda_search_clients",
+    }
 
     if name in _fec_tools and fec_client is None:
         return _not_configured("OpenFEC", "OPENFEC_API_KEY")
+    if name in _lda_tools and lda_client is None:
+        return _not_configured("LDA", "LDA_API_KEY")
 
     tracker = ServiceTracker()
 
@@ -194,6 +291,59 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     two_year_transaction_period=arguments.get("two_year_transaction_period"),
                     min_amount=arguments.get("min_amount"),
                     max_amount=arguments.get("max_amount"),
+                ),
+            )
+
+        elif name == "lda_search_filings":
+            result = await api_call(
+                tracker, "LDA", "/filings/",
+                lambda: lda_client.search_filings(
+                    registrant_name=arguments.get("registrant_name"),
+                    client_name=arguments.get("client_name"),
+                    lobbyist_name=arguments.get("lobbyist_name"),
+                    filing_year=arguments.get("filing_year"),
+                    filing_type=arguments.get("filing_type"),
+                    filing_period=arguments.get("filing_period"),
+                ),
+            )
+
+        elif name == "lda_get_filing":
+            result = await api_call(
+                tracker, "LDA", "/filings/{uuid}/",
+                lambda: lda_client.get_filing(arguments["filing_uuid"]),
+            )
+
+        elif name == "lda_search_contributions":
+            result = await api_call(
+                tracker, "LDA", "/contributions/",
+                lambda: lda_client.search_contributions(
+                    registrant_name=arguments.get("registrant_name"),
+                    lobbyist_name=arguments.get("lobbyist_name"),
+                    contribution_contributor=arguments.get("contribution_contributor"),
+                    filing_year=arguments.get("filing_year"),
+                ),
+            )
+
+        elif name == "lda_search_registrants":
+            result = await api_call(
+                tracker, "LDA", "/registrants/",
+                lambda: lda_client.search_registrants(
+                    registrant_name=arguments["registrant_name"],
+                ),
+            )
+
+        elif name == "lda_get_registrant":
+            result = await api_call(
+                tracker, "LDA", "/registrants/{id}/",
+                lambda: lda_client.get_registrant(arguments["registrant_id"]),
+            )
+
+        elif name == "lda_search_clients":
+            result = await api_call(
+                tracker, "LDA", "/clients/",
+                lambda: lda_client.search_clients(
+                    client_name=arguments.get("client_name"),
+                    registrant_id=arguments.get("registrant_id"),
                 ),
             )
 

@@ -37,12 +37,13 @@ _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 # these — noted as unconfirmed at scaffold time):
 #   OpenFEC        — api.data.gov default key tier: ~1,000/hour
 #                     documented (~0.28 req/s) — unconfirmed, verify
-#   LDA            — undocumented; conservative 1 req/s
+#   LDA            — 120/min documented (registered key) — confirmed via
+#                     live OpenAPI schema at lda.gov/api/openapi/v1/
 #   ProPublica NPE — undocumented; conservative 2 req/s
 
 SERVICE_RATE_LIMITS: dict[str, float] = {
     "OpenFEC":  4.00,   # ~900/hour  (1,000/hour default tier — headroom, unconfirmed)
-    "LDA":      1.00,   # 1 req/s    (undocumented — conservative)
+    "LDA":      0.60,   # ~100/min   (120/min documented — headroom)
     "ProPublica NPE": 0.50,   # 2 req/s (undocumented — conservative)
 }
 

@@ -6,6 +6,7 @@ Uses httpx mock transport to avoid hitting real APIs in tests.
 import pytest
 import httpx
 from packed.openfec_client import OpenFECClient
+from packed.lda_client import LDAClient
 
 
 # =============================================================================
@@ -123,3 +124,95 @@ class TestOpenFECClient:
         )
         with pytest.raises(httpx.HTTPStatusError):
             await c.search_candidates(q="test")
+
+
+# =============================================================================
+# LDAClient tests
+# =============================================================================
+
+class TestLDAClient:
+    @pytest.fixture
+    def mock_routes(self):
+        return {
+            "/filings/00000000-0000-0000-0000-000000000001/": {
+                "json": {"filing_uuid": "00000000-0000-0000-0000-000000000001", "registrant": {"name": "TEST REGISTRANT"}},
+            },
+            "/filings/": {
+                "json": {"results": [{"filing_uuid": "00000000-0000-0000-0000-000000000001", "registrant": {"name": "TEST REGISTRANT"}}]},
+            },
+            "/contributions/": {
+                "json": {"results": [{"filing_uuid": "00000000-0000-0000-0000-000000000002", "registrant": {"name": "TEST REGISTRANT"}}]},
+            },
+            "/registrants/42/": {
+                "json": {"id": 42, "name": "TEST REGISTRANT"},
+            },
+            "/registrants/": {
+                "json": {"results": [{"id": 42, "name": "TEST REGISTRANT"}]},
+            },
+            "/clients/": {
+                "json": {"results": [{"id": 7, "name": "TEST CLIENT"}]},
+            },
+            "/error/": {
+                "status": 500,
+                "json": {"detail": "Server Error"},
+            },
+        }
+
+    @pytest.fixture
+    def client(self, mock_routes):
+        transport = MockTransport(mock_routes)
+        c = LDAClient(api_key="test_key")
+        c._client = httpx.AsyncClient(
+            base_url="https://lda.gov/api/v1",
+            headers={"Authorization": "Token test_key"},
+            transport=transport,
+        )
+        return c
+
+    @pytest.mark.asyncio
+    async def test_search_filings(self, client):
+        result = await client.search_filings(registrant_name="test")
+        assert result["results"][0]["registrant"]["name"] == "TEST REGISTRANT"
+
+    @pytest.mark.asyncio
+    async def test_get_filing(self, client):
+        result = await client.get_filing("00000000-0000-0000-0000-000000000001")
+        assert result["filing_uuid"] == "00000000-0000-0000-0000-000000000001"
+
+    @pytest.mark.asyncio
+    async def test_search_contributions(self, client):
+        result = await client.search_contributions(lobbyist_name="test")
+        assert result["results"][0]["filing_uuid"] == "00000000-0000-0000-0000-000000000002"
+
+    @pytest.mark.asyncio
+    async def test_search_registrants(self, client):
+        result = await client.search_registrants(registrant_name="test")
+        assert result["results"][0]["name"] == "TEST REGISTRANT"
+
+    @pytest.mark.asyncio
+    async def test_get_registrant(self, client):
+        result = await client.get_registrant(42)
+        assert result["id"] == 42
+
+    @pytest.mark.asyncio
+    async def test_search_clients(self, client):
+        result = await client.search_clients(client_name="test")
+        assert result["results"][0]["name"] == "TEST CLIENT"
+
+    @pytest.mark.asyncio
+    async def test_authorization_header_included(self, client):
+        await client.search_filings(registrant_name="test")
+        request = client._client._transport.requests[-1]
+        assert request.headers["Authorization"] == "Token test_key"
+
+    @pytest.mark.asyncio
+    async def test_raises_on_http_error(self):
+        transport = MockTransport({
+            "/filings/": {"status": 500, "json": {"detail": "Server Error"}},
+        })
+        c = LDAClient(api_key="test_key")
+        c._client = httpx.AsyncClient(
+            base_url="https://lda.gov/api/v1", transport=transport,
+        )
+        with pytest.raises(httpx.HTTPStatusError):
+            await c.search_filings(registrant_name="test")

@@ -14,7 +14,7 @@ Packed cross-references PAC/committee contributions, federal lobbying registrati
 
 ## Status
 
-Early scaffold. OpenFEC integration (candidates, committees, itemized contributions) is in place. LDA (lobbying) and ProPublica Nonprofit Explorer (dark money) integrations are planned next — see `TODO.md`.
+OpenFEC (candidates, committees, itemized contributions) and LDA (registrants, clients, filings, lobbyist contributions) are both integrated and verified against their live APIs. ProPublica Nonprofit Explorer (dark money) is planned next — see `TODO.md`.
 
 ## Quick start
 
@@ -46,7 +46,8 @@ cp .env.example .env
 ```
 
 ```
-OPENFEC_API_KEY=<your-key>   # Required — free at api.data.gov
+OPENFEC_API_KEY=<your-key>   # Required for fec_* tools — free at api.data.gov
+LDA_API_KEY=<your-key>       # Required for lda_* tools — free account at lda.gov/api/register/
 ```
 
 ## Data sources
@@ -54,7 +55,7 @@ OPENFEC_API_KEY=<your-key>   # Required — free at api.data.gov
 | Source | Coverage | Auth |
 |--------|----------|------|
 | OpenFEC | Committees, candidates, itemized contributions, disbursements | Free API key |
-| LDA (Lobbying Disclosure Act) | Lobbying registrations, quarterly reports, lobbyist political contributions (LD-203) | Free account + key — planned |
+| LDA (Lobbying Disclosure Act) | Registrants, clients, filings (LD-1/LD-2), lobbyist political contributions (LD-203) | Free account + key |
 | ProPublica Nonprofit Explorer | 501(c)(4) Form 990 filings (dark money) | None — planned |
 
 ## Error Handling
