@@ -35,7 +35,16 @@ cross-source traversal layer, so each pattern is a bespoke function in
   "ARKANSAS FOR LEADERSHIP POLITICAL ACTION COMMITTEE (ARKPAC)" (fixed: ratio
   against the shorter name, require a non-generic shared word).
 - [ ] Dual role — lobbyist for client X is also a bundler/major donor for a committee whose member sits on a committee X lobbies before. Still blocked: needs committee-assignment data (who sits on which committee) — not covered by any of the 3 current sources.
-- [ ] **Leadership PAC laundering** — no longer blocked. `fec_search_disbursements(recipient_committee_id=...)` can now trace committee-to-committee transfers. Ready to build.
+- [x] **Pattern 2: leadership_pac_transfers** ✓ — traces a leadership PAC's money flow: top
+  Schedule A contributors funding it, and Schedule B transfers it makes to other committees
+  (filtered to rows with a recipient_committee_id, i.e. not vendor spending). Live-verified
+  2026-08-12 against ARKPAC (Sen. Boozman's leadership PAC): $5,000 max-out contributions
+  from corporate PACs (Goldman Sachs, CoreCivic, Microsoft) in, $405,000 transferred out
+  across 12 committees, including $275,000 to the Senate Leadership Fund. Found and fixed a
+  real bug during live testing: tried to append custom warnings to `ServiceTracker.warnings`,
+  which is a read-only computed property (derived from `.errors`), not a mutable list — the
+  append silently did nothing. Fixed by tracking pattern-level warnings separately and
+  combining with `tracker.warnings` at return time.
 - [ ] **JFC obscuring** — no longer blocked, same disbursement data unblocks this too. Ready to build.
 - [ ] Timing correlation (contribution/lobbying spend vs. votes) — still blocked: needs legislative vote data, out of scope for all 3 current sources. Would need a 4th source.
 - [ ] Industry concentration — still blocked: needs committee-assignment data, same blocker as "dual role"

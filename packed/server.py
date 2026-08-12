@@ -313,6 +313,28 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+        Tool(
+            name="pattern_leadership_pac_transfers",
+            description=(
+                "Trace a leadership PAC's money flow: top contributors "
+                "funding it (Schedule A), and which committees it "
+                "transfers money to (Schedule B disbursements that went "
+                "to another registered committee, not vendor spending). "
+                "A transfer to a candidate isn't inherently improper — "
+                "leadership PACs exist for exactly this — but this "
+                "surfaces who funds the PAC and who it funds in turn."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "committee_id": {"type": "string", "description": "FEC committee ID of the leadership PAC (optional if committee_name given)"},
+                    "committee_name": {"type": "string", "description": "Leadership PAC name to resolve to a committee ID (optional if committee_id given)"},
+                    "two_year_transaction_period": {"type": "integer", "description": "Election cycle, e.g. 2026 (optional)"},
+                    "min_transfer_amount": {"type": "number", "description": "Only include transfers at or above this amount (optional, default 0)"},
+                },
+                "required": [],
+            },
+        ),
     ]
 
 
@@ -337,6 +359,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return _not_configured("OpenFEC", "OPENFEC_API_KEY")
         if lda_client is None:
             return _not_configured("LDA", "LDA_API_KEY")
+    if name == "pattern_leadership_pac_transfers" and fec_client is None:
+        return _not_configured("OpenFEC", "OPENFEC_API_KEY")
 
     tracker = ServiceTracker()
 
@@ -478,6 +502,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 lobbyist_name=arguments.get("lobbyist_name"),
                 registrant_name=arguments.get("registrant_name"),
                 filing_year=arguments.get("filing_year"),
+            )
+            result = asdict(match)
+
+        elif name == "pattern_leadership_pac_transfers":
+            match = await patterns_module.detect_leadership_pac_transfers(
+                fec_client,
+                committee_id=arguments.get("committee_id"),
+                committee_name=arguments.get("committee_name"),
+                two_year_transaction_period=arguments.get("two_year_transaction_period"),
+                min_transfer_amount=arguments.get("min_transfer_amount", 0.0),
             )
             result = asdict(match)
 

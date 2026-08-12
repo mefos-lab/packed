@@ -10,6 +10,7 @@ from packed.lda_client import LDAClient
 from packed.openfec_client import OpenFECClient
 from packed.patterns import (
     detect_lobbyist_contribution_corroboration,
+    detect_leadership_pac_transfers,
     _names_roughly_match, _contributor_name, _two_year_period, _find_fec_match,
 )
 from tests.test_clients import MockTransport
@@ -205,4 +206,141 @@ class TestDetectLobbyistContributionCorroboration:
 
         assert result.status == "ERROR"
         assert result.findings == []
+        assert len(result.warnings) == 1
+
+
+# =============================================================================
+# detect_leadership_pac_transfers tests
+# =============================================================================
+
+_DESIGNATION_DISPLAY = {"D": "Leadership PAC", "P": "Principal campaign committee"}
+
+
+def _fec_committee(committee_id="C0LEAD01", name="TEST LEADERSHIP PAC", designation="D"):
+    return {
+        "committee_id": committee_id, "name": name, "designation": designation,
+        "designation_full": _DESIGNATION_DISPLAY.get(designation, designation),
+    }
+
+
+def _sched_a_contribution(name="DONOR ONE", amount=5000.0, date="2025-01-01"):
+    return {"contributor_name": name, "contribution_receipt_amount": amount, "contribution_receipt_date": date}
+
+
+def _sched_b_transfer(recipient_id="C0CAND01", recipient_name="CANDIDATE ONE FOR CONGRESS", amount=2000.0):
+    return {
+        "recipient_committee_id": recipient_id,
+        "recipient_committee": {"name": recipient_name},
+        "recipient_name": recipient_name,
+        "disbursement_amount": amount,
+    }
+
+
+def _sched_b_vendor_payment(amount=500.0):
+    return {"recipient_committee_id": None, "recipient_name": "OFFICE SUPPLY CO", "disbursement_amount": amount}
+
+
+def _make_fec_client(fec_routes):
+    fec = OpenFECClient(api_key="test_key")
+    fec._client = httpx.AsyncClient(
+        base_url="https://api.open.fec.gov/v1", transport=MockTransport(fec_routes),
+    )
+    return fec
+
+
+class TestDetectLeadershipPacTransfers:
+    @pytest.mark.asyncio
+    async def test_resolves_committee_by_name(self):
+        fec_routes = {
+            "/committees/": {"json": {"results": [_fec_committee()]}},
+            "/committee/C0LEAD01/": {"json": {"results": [_fec_committee()]}},
+            "/schedules/schedule_a/": {"json": {"results": []}},
+            "/schedules/schedule_b/": {"json": {"results": []}},
+        }
+        fec = _make_fec_client(fec_routes)
+        result = await detect_leadership_pac_transfers(fec, committee_name="test leadership pac")
+        assert result.stats["leadership_pac_committee_id"] == "C0LEAD01"
+        assert result.stats["leadership_pac_name"] == "TEST LEADERSHIP PAC"
+
+    @pytest.mark.asyncio
+    async def test_requires_committee_id_or_name(self):
+        fec = _make_fec_client({})
+        result = await detect_leadership_pac_transfers(fec)
+        assert result.status == "ERROR"
+
+    @pytest.mark.asyncio
+    async def test_no_committee_found_by_name(self):
+        fec_routes = {"/committees/": {"json": {"results": []}}}
+        fec = _make_fec_client(fec_routes)
+        result = await detect_leadership_pac_transfers(fec, committee_name="nonexistent")
+        assert result.status == "ERROR"
+
+    @pytest.mark.asyncio
+    async def test_filters_out_vendor_payments(self):
+        fec_routes = {
+            "/committee/C0LEAD01/": {"json": {"results": [_fec_committee()]}},
+            "/schedules/schedule_a/": {"json": {"results": []}},
+            "/schedules/schedule_b/": {"json": {"results": [_sched_b_transfer(), _sched_b_vendor_payment()]}},
+        }
+        fec = _make_fec_client(fec_routes)
+        result = await detect_leadership_pac_transfers(fec, committee_id="C0LEAD01")
+        assert len(result.findings) == 1
+        assert result.findings[0]["recipient_committee_id"] == "C0CAND01"
+
+    @pytest.mark.asyncio
+    async def test_aggregates_multiple_transfers_to_same_recipient(self):
+        fec_routes = {
+            "/committee/C0LEAD01/": {"json": {"results": [_fec_committee()]}},
+            "/schedules/schedule_a/": {"json": {"results": []}},
+            "/schedules/schedule_b/": {"json": {"results": [
+                _sched_b_transfer(amount=1000.0),
+                _sched_b_transfer(amount=1500.0),
+            ]}},
+        }
+        fec = _make_fec_client(fec_routes)
+        result = await detect_leadership_pac_transfers(fec, committee_id="C0LEAD01")
+        assert len(result.findings) == 1
+        assert result.findings[0]["total_amount"] == 2500.0
+        assert result.findings[0]["transaction_count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_min_transfer_amount_filter(self):
+        fec_routes = {
+            "/committee/C0LEAD01/": {"json": {"results": [_fec_committee()]}},
+            "/schedules/schedule_a/": {"json": {"results": []}},
+            "/schedules/schedule_b/": {"json": {"results": [
+                _sched_b_transfer(recipient_id="C0SMALL", amount=100.0),
+                _sched_b_transfer(recipient_id="C0BIG", amount=5000.0),
+            ]}},
+        }
+        fec = _make_fec_client(fec_routes)
+        result = await detect_leadership_pac_transfers(
+            fec, committee_id="C0LEAD01", min_transfer_amount=1000.0,
+        )
+        assert len(result.findings) == 1
+        assert result.findings[0]["recipient_committee_id"] == "C0BIG"
+
+    @pytest.mark.asyncio
+    async def test_top_contributors_populated(self):
+        fec_routes = {
+            "/committee/C0LEAD01/": {"json": {"results": [_fec_committee()]}},
+            "/schedules/schedule_a/": {"json": {"results": [
+                _sched_a_contribution(name="DONOR ONE", amount=5000.0),
+                _sched_a_contribution(name="DONOR TWO", amount=1000.0),
+            ]}},
+            "/schedules/schedule_b/": {"json": {"results": []}},
+        }
+        fec = _make_fec_client(fec_routes)
+        result = await detect_leadership_pac_transfers(fec, committee_id="C0LEAD01")
+        assert result.stats["top_contributors"][0]["contributor_name"] == "DONOR ONE"
+
+    @pytest.mark.asyncio
+    async def test_warns_when_not_a_leadership_pac(self):
+        fec_routes = {
+            "/committee/C0OTHER01/": {"json": {"results": [_fec_committee(committee_id="C0OTHER01", designation="P")]}},
+            "/schedules/schedule_a/": {"json": {"results": []}},
+            "/schedules/schedule_b/": {"json": {"results": []}},
+        }
+        fec = _make_fec_client(fec_routes)
+        result = await detect_leadership_pac_transfers(fec, committee_id="C0OTHER01")
         assert len(result.warnings) == 1

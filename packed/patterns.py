@@ -29,6 +29,19 @@ Known limitations, confirmed against live data (2026-08-12):
   committee vs. their principal campaign committee is a plausible
   false positive. Treat "corroborated" as "a plausible match found,"
   not "confirmed to be the identical committee."
+
+Pattern 2: leadership_pac_transfers. A leadership PAC lets a member of
+Congress (or candidate) raise and give money separately from their own
+campaign committee. Tracing both legs of its flow — who funds it
+(Schedule A contributions in), and which candidate committees it sends
+money to (Schedule B disbursements out, where recipient_committee_id
+is set) — surfaces the "candidate-to-candidate via leadership PAC"
+routing pattern directly, without requiring speculative conclusions
+about intent. Confirmed live (2026-08-12) that FEC committee
+designation code "D" = Leadership PAC, and that recipient_committee_id
+is reliably populated on Schedule B rows only when the recipient is
+itself a registered committee (vendor/operating payments leave it
+null) — this is what distinguishes a transfer from ordinary spending.
 """
 
 from __future__ import annotations
@@ -269,4 +282,143 @@ async def detect_lobbyist_contribution_corroboration(
             "unconfirmed": len(findings) - corroborated,
         },
         warnings=tracker.warnings,
+    )
+
+
+LEADERSHIP_PAC_DESIGNATION = "D"
+
+
+async def detect_leadership_pac_transfers(
+    fec_client: OpenFECClient,
+    committee_id: str | None = None,
+    committee_name: str | None = None,
+    two_year_transaction_period: int | None = None,
+    min_transfer_amount: float = 0.0,
+) -> PatternMatch:
+    """Trace both legs of a leadership PAC's money flow: who funds it
+    (top Schedule A contributors), and which candidate/other committees
+    it transfers money to (Schedule B disbursements with a
+    recipient_committee_id — i.e. not ordinary vendor spending).
+    """
+    tracker = ServiceTracker()
+
+    if committee_id is None:
+        if not committee_name:
+            return PatternMatch(
+                pattern_name="leadership_pac_transfers",
+                title="Leadership PAC Fund Routing",
+                risk_level="INFO",
+                status="ERROR",
+                description="committee_id or committee_name is required.",
+                findings=[],
+            )
+        search_result = await api_call(
+            tracker, "OpenFEC", "/committees/",
+            lambda: fec_client.search_committees(
+                q=committee_name, designation=LEADERSHIP_PAC_DESIGNATION,
+            ),
+        )
+        results = (search_result or {}).get("results", [])
+        if not results:
+            return PatternMatch(
+                pattern_name="leadership_pac_transfers",
+                title="Leadership PAC Fund Routing",
+                risk_level="INFO",
+                status="ERROR",
+                description=f"No leadership PAC found matching {committee_name!r}.",
+                findings=[],
+                warnings=tracker.warnings,
+            )
+        committee_id = results[0]["committee_id"]
+
+    committee_detail = await api_call(
+        tracker, "OpenFEC", "/committee/{id}/",
+        lambda: fec_client.get_committee(committee_id),
+    )
+    committee_record = ((committee_detail or {}).get("results") or [{}])[0]
+    committee_display_name = committee_record.get("name")
+    extra_warnings: list[str] = []
+    if committee_record.get("designation") != LEADERSHIP_PAC_DESIGNATION:
+        extra_warnings.append(
+            f"{committee_id} has designation "
+            f"{committee_record.get('designation_full', committee_record.get('designation'))!r}, "
+            f"not Leadership PAC — results may not reflect a leadership PAC's flow."
+        )
+
+    contributions = await api_call(
+        tracker, "OpenFEC", "/schedules/schedule_a/",
+        lambda: fec_client.search_contributions(
+            committee_id=committee_id,
+            two_year_transaction_period=two_year_transaction_period,
+            per_page=FEC_LOOKUP_PAGE_SIZE,
+        ),
+    )
+    contributors_in = (contributions or {}).get("results", [])
+    top_contributors = sorted(
+        contributors_in,
+        key=lambda c: c.get("contribution_receipt_amount") or 0,
+        reverse=True,
+    )[:10]
+
+    disbursements = await api_call(
+        tracker, "OpenFEC", "/schedules/schedule_b/",
+        lambda: fec_client.search_disbursements(
+            committee_id=committee_id,
+            two_year_transaction_period=two_year_transaction_period,
+            per_page=FEC_LOOKUP_PAGE_SIZE,
+        ),
+    )
+    all_disbursements = (disbursements or {}).get("results", [])
+    transfers = [
+        d for d in all_disbursements
+        if d.get("recipient_committee_id")
+        and (d.get("disbursement_amount") or 0) >= min_transfer_amount
+    ]
+
+    recipient_totals: dict[str, dict[str, Any]] = {}
+    for d in transfers:
+        rid = d["recipient_committee_id"]
+        entry = recipient_totals.setdefault(rid, {
+            "recipient_committee_id": rid,
+            "recipient_name": (d.get("recipient_committee") or {}).get("name")
+                or d.get("recipient_name"),
+            "total_amount": 0.0,
+            "transaction_count": 0,
+        })
+        entry["total_amount"] += d.get("disbursement_amount") or 0
+        entry["transaction_count"] += 1
+
+    findings = sorted(
+        recipient_totals.values(), key=lambda r: r["total_amount"], reverse=True,
+    )
+
+    return PatternMatch(
+        pattern_name="leadership_pac_transfers",
+        title="Leadership PAC Fund Routing",
+        risk_level="INFO",
+        status="ACTIVE",
+        description=(
+            "Traces a leadership PAC's money flow: top contributors "
+            "funding it, and which committees it transfers money to. "
+            "A transfer to a candidate committee isn't inherently "
+            "improper — leadership PACs exist for exactly this purpose "
+            "— but the pattern surfaces who's funding the PAC and who "
+            "it's funding in turn."
+        ),
+        findings=findings,
+        stats={
+            "leadership_pac_committee_id": committee_id,
+            "leadership_pac_name": committee_display_name,
+            "top_contributors": [
+                {
+                    "contributor_name": c.get("contributor_name"),
+                    "amount": c.get("contribution_receipt_amount"),
+                    "date": c.get("contribution_receipt_date"),
+                }
+                for c in top_contributors
+            ],
+            "total_transferred": sum(r["total_amount"] for r in findings),
+            "distinct_recipient_committees": len(findings),
+        },
+        warnings=extra_warnings + tracker.warnings,
     )
