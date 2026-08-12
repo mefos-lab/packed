@@ -45,7 +45,18 @@ cross-source traversal layer, so each pattern is a bespoke function in
   which is a read-only computed property (derived from `.errors`), not a mutable list — the
   append silently did nothing. Fixed by tracking pattern-level warnings separately and
   combining with `tracker.warnings` at return time.
-- [ ] **JFC obscuring** — no longer blocked, same disbursement data unblocks this too. Ready to build.
+- [x] **Pattern 3: jfc_obscuring** ✓ — same money-in/money-out shape as pattern 2, refactored
+  into a shared `_trace_committee_money_flow()` helper (both patterns turned out to share
+  identical structure — exactly the trigger the module docstring flagged for revisiting
+  "bespoke per pattern"). Scoped to designation "J" instead of "D". Live-verified 2026-08-12
+  against Collins Victory Committee (C00692897): individual donor James Kennedy gave two
+  separate $25,000 contributions (far above what any single committee could legally accept
+  directly), and the JFC's $709,739 total split across 4 committees — $509,977 straight to
+  Collins for Senator, plus NRSC and two allied PACs. Textbook example of the pattern.
+  Research note: FEC Schedule A has a real memo_code/memo_text mechanism that could show the
+  *exact* per-participant split of a single bundled check, but its semantics weren't
+  confirmed precisely enough to build on with confidence — documented in the module
+  docstring as a known gap, not silently guessed at.
 - [ ] Timing correlation (contribution/lobbying spend vs. votes) — still blocked: needs legislative vote data, out of scope for all 3 current sources. Would need a 4th source.
 - [ ] Industry concentration — still blocked: needs committee-assignment data, same blocker as "dual role"
 

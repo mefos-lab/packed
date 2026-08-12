@@ -11,6 +11,7 @@ from packed.openfec_client import OpenFECClient
 from packed.patterns import (
     detect_lobbyist_contribution_corroboration,
     detect_leadership_pac_transfers,
+    detect_jfc_obscuring,
     _names_roughly_match, _contributor_name, _two_year_period, _find_fec_match,
 )
 from tests.test_clients import MockTransport
@@ -259,8 +260,8 @@ class TestDetectLeadershipPacTransfers:
         }
         fec = _make_fec_client(fec_routes)
         result = await detect_leadership_pac_transfers(fec, committee_name="test leadership pac")
-        assert result.stats["leadership_pac_committee_id"] == "C0LEAD01"
-        assert result.stats["leadership_pac_name"] == "TEST LEADERSHIP PAC"
+        assert result.stats["committee_id"] == "C0LEAD01"
+        assert result.stats["committee_name"] == "TEST LEADERSHIP PAC"
 
     @pytest.mark.asyncio
     async def test_requires_committee_id_or_name(self):
@@ -344,3 +345,66 @@ class TestDetectLeadershipPacTransfers:
         fec = _make_fec_client(fec_routes)
         result = await detect_leadership_pac_transfers(fec, committee_id="C0OTHER01")
         assert len(result.warnings) == 1
+
+
+# =============================================================================
+# detect_jfc_obscuring tests
+#
+# Shares _trace_committee_money_flow with leadership_pac_transfers, so
+# the vendor-filtering/aggregation/min-amount edge cases are already
+# covered above. These tests confirm the JFC-specific wiring: it
+# resolves by designation "J" (not "D"), and reports the right
+# pattern_name/title.
+# =============================================================================
+
+class TestDetectJfcObscuring:
+    @pytest.mark.asyncio
+    async def test_resolves_by_jfc_designation(self):
+        fec_routes = {
+            "/committees/": {"json": {"results": [_fec_committee(
+                committee_id="C0JFC01", name="TEST VICTORY FUND", designation="J",
+            )]}},
+            "/committee/C0JFC01/": {"json": {"results": [_fec_committee(
+                committee_id="C0JFC01", name="TEST VICTORY FUND", designation="J",
+            )]}},
+            "/schedules/schedule_a/": {"json": {"results": []}},
+            "/schedules/schedule_b/": {"json": {"results": []}},
+        }
+        fec = _make_fec_client(fec_routes)
+        result = await detect_jfc_obscuring(fec, committee_name="test victory fund")
+        assert result.stats["committee_id"] == "C0JFC01"
+        assert result.pattern_name == "jfc_obscuring"
+        assert result.title == "Joint Fundraising Committee Fund Routing"
+        assert result.warnings == []
+
+    @pytest.mark.asyncio
+    async def test_traces_splits_to_participant_committees(self):
+        fec_routes = {
+            "/committee/C0JFC01/": {"json": {"results": [_fec_committee(
+                committee_id="C0JFC01", name="TEST VICTORY FUND", designation="J",
+            )]}},
+            "/schedules/schedule_a/": {"json": {"results": [
+                _sched_a_contribution(name="BIG DONOR", amount=10000.0),
+            ]}},
+            "/schedules/schedule_b/": {"json": {"results": [
+                _sched_b_transfer(recipient_id="C0PARTICIPANT1", amount=3300.0),
+                _sched_b_transfer(recipient_id="C0PARTICIPANT2", amount=3300.0),
+                _sched_b_vendor_payment(),
+            ]}},
+        }
+        fec = _make_fec_client(fec_routes)
+        result = await detect_jfc_obscuring(fec, committee_id="C0JFC01")
+        assert result.stats["distinct_recipient_committees"] == 2
+        assert {f["recipient_committee_id"] for f in result.findings} == {"C0PARTICIPANT1", "C0PARTICIPANT2"}
+
+    @pytest.mark.asyncio
+    async def test_warns_when_not_actually_a_jfc(self):
+        fec_routes = {
+            "/committee/C0LEAD01/": {"json": {"results": [_fec_committee(designation="D")]}},
+            "/schedules/schedule_a/": {"json": {"results": []}},
+            "/schedules/schedule_b/": {"json": {"results": []}},
+        }
+        fec = _make_fec_client(fec_routes)
+        result = await detect_jfc_obscuring(fec, committee_id="C0LEAD01")
+        assert len(result.warnings) == 1
+        assert "Joint Fundraising Committee" in result.warnings[0]
