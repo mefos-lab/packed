@@ -142,3 +142,43 @@ class LDAClient:
         )
         resp.raise_for_status()
         return resp.json()
+
+    async def get_client(self, client_id: int) -> dict[str, Any]:
+        """Get a single lobbying client's full record by ID."""
+        resp = await self._client.get(f"/clients/{client_id}/")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def search_lobbyists(
+        self,
+        lobbyist_name: str | None = None,
+        registrant_id: int | None = None,
+        registrant_name: str | None = None,
+        page: int = 1,
+        page_size: int = 25,
+    ) -> dict[str, Any]:
+        """Search individual lobbyists by name, optionally scoped to a
+        registrant. Lobbyists are a distinct entity from registrants — a
+        registrant (firm) employs many lobbyists.
+        """
+        resp = await self._client.get(
+            "/lobbyists/",
+            params=self._params(
+                lobbyist_name=lobbyist_name, registrant_id=registrant_id,
+                registrant_name=registrant_name, page=page, page_size=page_size,
+            ),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_lobbyist(self, lobbyist_id: int) -> dict[str, Any]:
+        """Get a single lobbyist's full record by ID."""
+        resp = await self._client.get(f"/lobbyists/{lobbyist_id}/")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_contribution(self, filing_uuid: str) -> dict[str, Any]:
+        """Get a single LD-203 contribution report by its filing UUID."""
+        resp = await self._client.get(f"/contributions/{filing_uuid}/")
+        resp.raise_for_status()
+        return resp.json()

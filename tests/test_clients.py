@@ -219,8 +219,20 @@ class TestLDAClient:
             "/registrants/": {
                 "json": {"results": [{"id": 42, "name": "TEST REGISTRANT"}]},
             },
+            "/clients/7/": {
+                "json": {"id": 7, "name": "TEST CLIENT"},
+            },
             "/clients/": {
                 "json": {"results": [{"id": 7, "name": "TEST CLIENT"}]},
+            },
+            "/lobbyists/99/": {
+                "json": {"id": 99, "first_name": "JANE", "last_name": "SMITH"},
+            },
+            "/lobbyists/": {
+                "json": {"results": [{"id": 99, "first_name": "JANE", "last_name": "SMITH"}]},
+            },
+            "/contributions/22222222-2222-2222-2222-222222222222/": {
+                "json": {"filing_uuid": "22222222-2222-2222-2222-222222222222", "filing_year": 2025},
             },
             "/error/": {
                 "status": 500,
@@ -268,6 +280,31 @@ class TestLDAClient:
     async def test_search_clients(self, client):
         result = await client.search_clients(client_name="test")
         assert result["results"][0]["name"] == "TEST CLIENT"
+
+    @pytest.mark.asyncio
+    async def test_get_client(self, client):
+        result = await client.get_client(7)
+        assert result["id"] == 7
+
+    @pytest.mark.asyncio
+    async def test_search_lobbyists(self, client):
+        result = await client.search_lobbyists(lobbyist_name="smith")
+        assert result["results"][0]["last_name"] == "SMITH"
+
+    @pytest.mark.asyncio
+    async def test_search_lobbyists_scoped_to_registrant(self, client):
+        result = await client.search_lobbyists(registrant_id=42)
+        assert "results" in result
+
+    @pytest.mark.asyncio
+    async def test_get_lobbyist(self, client):
+        result = await client.get_lobbyist(99)
+        assert result["id"] == 99
+
+    @pytest.mark.asyncio
+    async def test_get_contribution(self, client):
+        result = await client.get_contribution("22222222-2222-2222-2222-222222222222")
+        assert result["filing_year"] == 2025
 
     @pytest.mark.asyncio
     async def test_authorization_header_included(self, client):

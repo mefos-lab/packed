@@ -331,6 +331,56 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+        Tool(
+            name="lda_get_client",
+            description="Get a single LDA lobbying client's full record by ID.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "client_id": {"type": "integer", "description": "Client ID (from lda_search_clients)"},
+                },
+                "required": ["client_id"],
+            },
+        ),
+        Tool(
+            name="lda_search_lobbyists",
+            description=(
+                "Search individual lobbyists by name, optionally scoped "
+                "to a registrant. Lobbyists are a distinct entity from "
+                "registrants — a registrant (firm) employs many lobbyists."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "lobbyist_name": {"type": "string", "description": "Lobbyist name to search for (optional)"},
+                    "registrant_id": {"type": "integer", "description": "Scope to a specific registrant ID (optional)"},
+                    "registrant_name": {"type": "string", "description": "Scope to a registrant by name (optional)"},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="lda_get_lobbyist",
+            description="Get a single lobbyist's full record by ID.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "lobbyist_id": {"type": "integer", "description": "Lobbyist ID (from lda_search_lobbyists)"},
+                },
+                "required": ["lobbyist_id"],
+            },
+        ),
+        Tool(
+            name="lda_get_contribution",
+            description="Get a single LD-203 contribution report by its filing UUID.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "filing_uuid": {"type": "string", "description": "Contribution report filing UUID (from lda_search_contributions)"},
+                },
+                "required": ["filing_uuid"],
+            },
+        ),
 
         # =====================================================================
         # ProPublica Nonprofit Explorer tools
@@ -452,6 +502,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     _lda_tools = {
         "lda_search_filings", "lda_get_filing", "lda_search_contributions",
         "lda_search_registrants", "lda_get_registrant", "lda_search_clients",
+        "lda_get_client", "lda_search_lobbyists", "lda_get_lobbyist",
+        "lda_get_contribution",
     }
 
     if name in _fec_tools and fec_client is None:
@@ -631,6 +683,34 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     client_name=arguments.get("client_name"),
                     registrant_id=arguments.get("registrant_id"),
                 ),
+            )
+
+        elif name == "lda_get_client":
+            result = await api_call(
+                tracker, "LDA", "/clients/{id}/",
+                lambda: lda_client.get_client(arguments["client_id"]),
+            )
+
+        elif name == "lda_search_lobbyists":
+            result = await api_call(
+                tracker, "LDA", "/lobbyists/",
+                lambda: lda_client.search_lobbyists(
+                    lobbyist_name=arguments.get("lobbyist_name"),
+                    registrant_id=arguments.get("registrant_id"),
+                    registrant_name=arguments.get("registrant_name"),
+                ),
+            )
+
+        elif name == "lda_get_lobbyist":
+            result = await api_call(
+                tracker, "LDA", "/lobbyists/{id}/",
+                lambda: lda_client.get_lobbyist(arguments["lobbyist_id"]),
+            )
+
+        elif name == "lda_get_contribution":
+            result = await api_call(
+                tracker, "LDA", "/contributions/{filing_uuid}/",
+                lambda: lda_client.get_contribution(arguments["filing_uuid"]),
             )
 
         elif name == "propublica_search":
