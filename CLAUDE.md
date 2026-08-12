@@ -13,11 +13,13 @@ from (`~/src/mefos-lab/PACKED_PLAN.md` in the private planning repo).
 ## Status
 
 All three planned data sources are wired up and verified against
-their live APIs (2026-08-12): OpenFEC (`packed/openfec_client.py`),
-LDA (`packed/lda_client.py`), and ProPublica Nonprofit Explorer
-(`packed/propublica_client.py`). First cross-source detection pattern
-(`packed/patterns.py`) is built and live-verified. See `TODO.md` for
-which further patterns are blocked on data this repo doesn't have yet.
+their live APIs (2026-08-12): OpenFEC (`packed/openfec_client.py`,
+including Schedule B disbursements), LDA (`packed/lda_client.py`), and
+ProPublica Nonprofit Explorer (`packed/propublica_client.py`). Two
+detection patterns built and live-verified in `packed/patterns.py`
+(lobbyist contribution corroboration, leadership PAC transfers). See
+`TODO.md` for which further patterns are blocked on data this repo
+doesn't have yet.
 
 ## Data Sources
 
