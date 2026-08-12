@@ -68,19 +68,59 @@ cross-source traversal layer, so each pattern is a bespoke function in
 ## 6. Cross-tool composition
 - [ ] Skill that calls both `packed` and `sift` for entity resolution
 
-## 7. Provider capability review (not started)
-Re-read the full docs for each provider — OpenFEC (api.open.fec.gov/developers/),
-LDA (lda.gov/api/openapi/v1/), ProPublica Nonprofit Explorer
-(projects.propublica.org/nonprofits/api) — beyond what was needed for the
-endpoints already built, to check for other capabilities worth exposing
-(e.g. OpenFEC has electioneering communications, 24/48-hour reports, F1
-registrations; LDA's constants endpoints; bulk/download data). Also check
-whether any of these providers already publish their own MCP server/toolset
-that's worth learning from or composing with instead of reimplementing.
+## ~~7. Provider capability review~~ ✓ (2026-08-12)
 
-Separately: review how packed organizes its *own* MCP toolset as the tool
-count grows (currently 15: 6 fec_*, 6 lda_*, 2 propublica_*, 1 pattern_*).
-Consider whether tools should stay one flat namespace per source (current
-approach) or whether grouping/renaming is worth it for discoverability once
-more sources and patterns are added — informed by whatever the provider
-review above turns up, not decided in isolation from it.
+### Existing MCP toolsets for these providers
+Not first movers on any of the 3 sources — real, existing (unofficial, third-party)
+MCP servers found for all three:
+- **OpenFEC**: several, most complete is cyanheads/openfec-mcp-server (12 tools —
+  see below). Also sh-patterson/fec-mcp-server, reichaves/fec-mcp-server,
+  hodgesmr/agent-fecfile (a Claude Code plugin specifically).
+- **ProPublica Nonprofit Explorer**: cyanheads/nonprofit-explorer-mcp-server (3
+  tools), asachs01/propublica-mcp.
+- **LDA**: a hosted product (mcpbundles.com) covering Senate LDA disclosures —
+  no open-source implementation found, so nothing to directly compare tool-for-tool.
+
+None of them do cross-source correlation — every one is a single-provider wrapper.
+**packed's actual differentiator isn't "having an FEC API wrapper," it's the
+detection patterns that cross-reference LDA against FEC** (corroboration, money-flow
+tracing). That's confirmed to be genuinely unaddressed by anything else found.
+
+### Capability gaps confirmed against the live API (worth adding)
+Cross-referencing cyanheads/openfec-mcp-server's 12-tool list against ours (6) and
+verifying each candidate gap actually exists live before trusting it:
+- [ ] **Independent expenditures** (`/schedules/schedule_e/`) — already on this TODO
+  (phase 2), now double-confirmed valuable: a real competing tool has it as a
+  dedicated tool, and live probe confirmed 19,506 real records for one candidate/cycle.
+- [ ] **Coordinated party expenditures** (`/schedules/schedule_f/`) — new finding,
+  confirmed live (200, valid response, though 0 results for the one committee tested
+  — a party committee would show real data). Distinct disclosure category from
+  independent expenditures.
+- [ ] **Committee/candidate financial totals** (`/committee/{id}/totals/`,
+  `/candidate/{id}/totals/`) — new finding, confirmed live. Cheap, high-value add:
+  "how much has X raised/spent this cycle" without pulling itemized data.
+- [ ] **Candidate↔committee linkage** (`/candidate/{id}/committees/`) — new finding,
+  confirmed live. Resolves which committees belong to a candidate directly, instead
+  of inferring from search results.
+- [ ] **Filing index search** (`/filings/`) — new finding, confirmed live. Lower
+  priority — useful for finding original source documents/dates, not core to
+  money-flow tracing.
+- [ ] **Legal/enforcement data** (advisory opinions, enforcement cases) — new
+  finding from competitor tool list, not independently verified live. Different
+  domain (FEC compliance actions) from our money-flow focus — lower priority, but
+  could feed a future "under regulatory scrutiny" signal.
+- LDA gaps identified from the already-fetched OpenAPI schema (not new research):
+  `search_lobbyists`/`get_lobbyist(id)` (lobbyists are a separate entity from
+  registrants — moderate value), `get_client(id)`, `get_contribution(filing_uuid)`
+  (single filing lookup vs. our search-only). LDA's `constants/*` endpoints are
+  just enum lookups (filing types, countries, etc.) — low value, skip.
+- ProPublica: no real gap. Competitor splits `get_filings` into a separate tool
+  from `get_organization`; ours already returns filing history embedded in
+  `get_organization` (confirmed live earlier) — same coverage, different shape.
+
+### Own MCP toolset organization
+18 tools currently (6 fec_*, 6 lda_*, 2 propublica_*, 3 pattern_*), all in a flat
+per-source namespace. cyanheads/openfec-mcp-server manages 12 tools the same flat
+way with no hierarchical grouping. No evidence flat naming is causing discoverability
+problems yet — reconsider only if/when the count grows meaningfully past what's
+already been shown to work fine elsewhere (e.g. 20-25+).
