@@ -3,10 +3,15 @@
 Unlike Sift's pattern system (a generic condition engine evaluated
 against a unified traversal graph — see sift/pattern_matcher.py),
 packed has no cross-source graph/traversal layer yet. Each pattern
-here is a bespoke function that queries the relevant clients directly
-and applies domain-specific matching logic. A generic rule engine
-isn't warranted until there are enough patterns sharing structure to
-justify the abstraction — see CLAUDE.md for the reasoning.
+here queries the relevant clients directly and applies domain-specific
+matching logic. A full generic rule engine like Sift's still isn't
+warranted — pattern 1 has genuinely different structure from patterns
+2/3. But patterns 2 and 3 (leadership PAC / JFC) turned out to share
+the exact same "resolve a committee, trace money in via Schedule A,
+trace money out via Schedule B" shape, so that shared logic is
+extracted into `_trace_committee_money_flow()` rather than duplicated
+— the trigger for revisiting "bespoke per pattern" that this docstring
+used to flag as a someday-maybe. See CLAUDE.md for the fuller reasoning.
 
 Pattern 1: lobbyist_contribution_corroboration. LD-203 requires
 registered lobbyists/registrants to disclose their own federal
@@ -42,6 +47,30 @@ designation code "D" = Leadership PAC, and that recipient_committee_id
 is reliably populated on Schedule B rows only when the recipient is
 itself a registered committee (vendor/operating payments leave it
 null) — this is what distinguishes a transfer from ordinary spending.
+
+Pattern 3: jfc_obscuring. Same money-in/money-out shape as pattern 2,
+scoped to designation "J" (Joint Fundraising Committee) instead of "D".
+A JFC pools multiple committees' separate contribution limits, letting
+a single donor write one check larger than any participant could
+legally accept directly — the JFC then splits proceeds among
+participants. That splitting is exactly what can obscure how much a
+donor ultimately supports any one candidate.
+
+Scoping note from live research (2026-08-12): FEC's Schedule A does
+expose a real allocation-disclosure mechanism for this — memo_code/
+memo_text entries showing how a bundled contribution was split among
+participants (confirmed these exist on live JFC data, e.g. Collins
+Victory Committee C00692897). But the semantics weren't confirmed
+precisely enough to build on with confidence (which memo_code values
+mean "this is a JFC split" specifically vs. other memo uses — e.g.
+observed code "X" on both apparent redesignations and repeat entries
+from a single PAC, without a verified data dictionary to disambiguate
+from training knowledge alone). Rather than encode an uncertain
+interpretation, this pattern reuses the same verified money-in/
+money-out tracing as pattern 2. Revisit if FEC's memo field semantics
+get properly confirmed — that would let this pattern show the actual
+per-participant split of a single bundled contribution, not just
+aggregate flow.
 """
 
 from __future__ import annotations
@@ -286,48 +315,55 @@ async def detect_lobbyist_contribution_corroboration(
 
 
 LEADERSHIP_PAC_DESIGNATION = "D"
+JFC_DESIGNATION = "J"
 
 
-async def detect_leadership_pac_transfers(
+async def _trace_committee_money_flow(
     fec_client: OpenFECClient,
-    committee_id: str | None = None,
-    committee_name: str | None = None,
-    two_year_transaction_period: int | None = None,
-    min_transfer_amount: float = 0.0,
+    *,
+    pattern_name: str,
+    title: str,
+    description: str,
+    expected_designation: str,
+    designation_label: str,
+    committee_id: str | None,
+    committee_name: str | None,
+    two_year_transaction_period: int | None,
+    min_transfer_amount: float,
 ) -> PatternMatch:
-    """Trace both legs of a leadership PAC's money flow: who funds it
-    (top Schedule A contributors), and which candidate/other committees
-    it transfers money to (Schedule B disbursements with a
-    recipient_committee_id — i.e. not ordinary vendor spending).
+    """Shared logic for patterns 2 and 3: resolve a committee (by ID, or
+    by name scoped to the expected designation), then trace money in
+    (top Schedule A contributors) and money out (Schedule B
+    disbursements that went to another registered committee, not
+    ordinary vendor spending). Leadership PACs and joint fundraising
+    committees share this exact shape — extracted here once the second
+    pattern needed it, per the module docstring's stated trigger for
+    revisiting the no-generic-engine decision. Still not a generic
+    condition engine — pattern 1 has genuinely different structure and
+    isn't part of this.
     """
     tracker = ServiceTracker()
 
     if committee_id is None:
         if not committee_name:
             return PatternMatch(
-                pattern_name="leadership_pac_transfers",
-                title="Leadership PAC Fund Routing",
-                risk_level="INFO",
-                status="ERROR",
-                description="committee_id or committee_name is required.",
+                pattern_name=pattern_name, title=title, risk_level="INFO",
+                status="ERROR", description="committee_id or committee_name is required.",
                 findings=[],
             )
         search_result = await api_call(
             tracker, "OpenFEC", "/committees/",
             lambda: fec_client.search_committees(
-                q=committee_name, designation=LEADERSHIP_PAC_DESIGNATION,
+                q=committee_name, designation=expected_designation,
             ),
         )
         results = (search_result or {}).get("results", [])
         if not results:
             return PatternMatch(
-                pattern_name="leadership_pac_transfers",
-                title="Leadership PAC Fund Routing",
-                risk_level="INFO",
+                pattern_name=pattern_name, title=title, risk_level="INFO",
                 status="ERROR",
-                description=f"No leadership PAC found matching {committee_name!r}.",
-                findings=[],
-                warnings=tracker.warnings,
+                description=f"No {designation_label} found matching {committee_name!r}.",
+                findings=[], warnings=tracker.warnings,
             )
         committee_id = results[0]["committee_id"]
 
@@ -338,11 +374,12 @@ async def detect_leadership_pac_transfers(
     committee_record = ((committee_detail or {}).get("results") or [{}])[0]
     committee_display_name = committee_record.get("name")
     extra_warnings: list[str] = []
-    if committee_record.get("designation") != LEADERSHIP_PAC_DESIGNATION:
+    if committee_record.get("designation") != expected_designation:
         extra_warnings.append(
             f"{committee_id} has designation "
             f"{committee_record.get('designation_full', committee_record.get('designation'))!r}, "
-            f"not Leadership PAC — results may not reflect a leadership PAC's flow."
+            f"not {designation_label} — results may not reflect a "
+            f"{designation_label.lower()}'s flow."
         )
 
     contributions = await api_call(
@@ -393,22 +430,15 @@ async def detect_leadership_pac_transfers(
     )
 
     return PatternMatch(
-        pattern_name="leadership_pac_transfers",
-        title="Leadership PAC Fund Routing",
+        pattern_name=pattern_name,
+        title=title,
         risk_level="INFO",
         status="ACTIVE",
-        description=(
-            "Traces a leadership PAC's money flow: top contributors "
-            "funding it, and which committees it transfers money to. "
-            "A transfer to a candidate committee isn't inherently "
-            "improper — leadership PACs exist for exactly this purpose "
-            "— but the pattern surfaces who's funding the PAC and who "
-            "it's funding in turn."
-        ),
+        description=description,
         findings=findings,
         stats={
-            "leadership_pac_committee_id": committee_id,
-            "leadership_pac_name": committee_display_name,
+            "committee_id": committee_id,
+            "committee_name": committee_display_name,
             "top_contributors": [
                 {
                     "contributor_name": c.get("contributor_name"),
@@ -421,4 +451,69 @@ async def detect_leadership_pac_transfers(
             "distinct_recipient_committees": len(findings),
         },
         warnings=extra_warnings + tracker.warnings,
+    )
+
+
+async def detect_leadership_pac_transfers(
+    fec_client: OpenFECClient,
+    committee_id: str | None = None,
+    committee_name: str | None = None,
+    two_year_transaction_period: int | None = None,
+    min_transfer_amount: float = 0.0,
+) -> PatternMatch:
+    """Trace a leadership PAC's money flow: who funds it, and which
+    committees it transfers money to. See module docstring, Pattern 2.
+    """
+    return await _trace_committee_money_flow(
+        fec_client,
+        pattern_name="leadership_pac_transfers",
+        title="Leadership PAC Fund Routing",
+        description=(
+            "Traces a leadership PAC's money flow: top contributors "
+            "funding it, and which committees it transfers money to. "
+            "A transfer to a candidate committee isn't inherently "
+            "improper — leadership PACs exist for exactly this purpose "
+            "— but the pattern surfaces who's funding the PAC and who "
+            "it's funding in turn."
+        ),
+        expected_designation=LEADERSHIP_PAC_DESIGNATION,
+        designation_label="Leadership PAC",
+        committee_id=committee_id,
+        committee_name=committee_name,
+        two_year_transaction_period=two_year_transaction_period,
+        min_transfer_amount=min_transfer_amount,
+    )
+
+
+async def detect_jfc_obscuring(
+    fec_client: OpenFECClient,
+    committee_id: str | None = None,
+    committee_name: str | None = None,
+    two_year_transaction_period: int | None = None,
+    min_transfer_amount: float = 0.0,
+) -> PatternMatch:
+    """Trace a joint fundraising committee's money flow: who funds it,
+    and which participant committees it splits proceeds to. See module
+    docstring, Pattern 3.
+    """
+    return await _trace_committee_money_flow(
+        fec_client,
+        pattern_name="jfc_obscuring",
+        title="Joint Fundraising Committee Fund Routing",
+        description=(
+            "Traces a joint fundraising committee's money flow: top "
+            "contributors funding it, and which participant committees "
+            "it splits proceeds to. A JFC lets a donor write one large "
+            "check that gets divided across multiple committees, each "
+            "within its own legal limit — which is exactly what can "
+            "obscure how much a donor is ultimately supporting any one "
+            "candidate. Splitting isn't itself improper; the pattern "
+            "surfaces the flow so the real per-candidate scale is visible."
+        ),
+        expected_designation=JFC_DESIGNATION,
+        designation_label="Joint Fundraising Committee",
+        committee_id=committee_id,
+        committee_name=committee_name,
+        two_year_transaction_period=two_year_transaction_period,
+        min_transfer_amount=min_transfer_amount,
     )

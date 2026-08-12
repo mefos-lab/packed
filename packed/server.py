@@ -335,6 +335,29 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+        Tool(
+            name="pattern_jfc_obscuring",
+            description=(
+                "Trace a joint fundraising committee's money flow: top "
+                "contributors funding it (Schedule A), and which "
+                "participant committees it splits proceeds to (Schedule "
+                "B disbursements that went to another registered "
+                "committee). A JFC lets a donor write one large check "
+                "that gets divided across multiple committees, each "
+                "within its own legal limit — this surfaces the flow so "
+                "the real per-candidate scale of support is visible."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "committee_id": {"type": "string", "description": "FEC committee ID of the joint fundraising committee (optional if committee_name given)"},
+                    "committee_name": {"type": "string", "description": "JFC name to resolve to a committee ID (optional if committee_id given)"},
+                    "two_year_transaction_period": {"type": "integer", "description": "Election cycle, e.g. 2026 (optional)"},
+                    "min_transfer_amount": {"type": "number", "description": "Only include transfers at or above this amount (optional, default 0)"},
+                },
+                "required": [],
+            },
+        ),
     ]
 
 
@@ -360,6 +383,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         if lda_client is None:
             return _not_configured("LDA", "LDA_API_KEY")
     if name == "pattern_leadership_pac_transfers" and fec_client is None:
+        return _not_configured("OpenFEC", "OPENFEC_API_KEY")
+    if name == "pattern_jfc_obscuring" and fec_client is None:
         return _not_configured("OpenFEC", "OPENFEC_API_KEY")
 
     tracker = ServiceTracker()
@@ -507,6 +532,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         elif name == "pattern_leadership_pac_transfers":
             match = await patterns_module.detect_leadership_pac_transfers(
+                fec_client,
+                committee_id=arguments.get("committee_id"),
+                committee_name=arguments.get("committee_name"),
+                two_year_transaction_period=arguments.get("two_year_transaction_period"),
+                min_transfer_amount=arguments.get("min_transfer_amount", 0.0),
+            )
+            result = asdict(match)
+
+        elif name == "pattern_jfc_obscuring":
+            match = await patterns_module.detect_jfc_obscuring(
                 fec_client,
                 committee_id=arguments.get("committee_id"),
                 committee_name=arguments.get("committee_name"),

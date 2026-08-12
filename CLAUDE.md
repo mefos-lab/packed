@@ -15,11 +15,12 @@ from (`~/src/mefos-lab/PACKED_PLAN.md` in the private planning repo).
 All three planned data sources are wired up and verified against
 their live APIs (2026-08-12): OpenFEC (`packed/openfec_client.py`,
 including Schedule B disbursements), LDA (`packed/lda_client.py`), and
-ProPublica Nonprofit Explorer (`packed/propublica_client.py`). Two
+ProPublica Nonprofit Explorer (`packed/propublica_client.py`). Three
 detection patterns built and live-verified in `packed/patterns.py`
-(lobbyist contribution corroboration, leadership PAC transfers). See
-`TODO.md` for which further patterns are blocked on data this repo
-doesn't have yet.
+(lobbyist contribution corroboration, leadership PAC transfers, JFC
+obscuring — the latter two share a `_trace_committee_money_flow()`
+helper). See `TODO.md` for which further patterns are blocked on data
+this repo doesn't have yet.
 
 ## Data Sources
 
