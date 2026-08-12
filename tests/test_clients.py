@@ -7,6 +7,7 @@ import pytest
 import httpx
 from packed.openfec_client import OpenFECClient
 from packed.lda_client import LDAClient
+from packed.propublica_client import ProPublicaNPEClient
 
 
 # =============================================================================
@@ -216,3 +217,73 @@ class TestLDAClient:
         )
         with pytest.raises(httpx.HTTPStatusError):
             await c.search_filings(registrant_name="test")
+
+
+# =============================================================================
+# ProPublicaNPEClient tests
+# =============================================================================
+
+class TestProPublicaNPEClient:
+    @pytest.fixture
+    def mock_routes(self):
+        return {
+            "/search.json": {
+                "json": {
+                    "total_results": 1,
+                    "organizations": [{"ein": 142007220, "name": "TEST NONPROFIT", "subseccd": 4}],
+                },
+            },
+            "/organizations/142007220.json": {
+                "json": {
+                    "organization": {"ein": 142007220, "name": "TEST NONPROFIT"},
+                    "filings_with_data": [{"ein": 142007220, "tax_prd_yr": 2024, "totrevenue": 100000}],
+                },
+            },
+            "/error.json": {
+                "status": 500,
+                "json": {"error": "Server Error"},
+            },
+        }
+
+    @pytest.fixture
+    def client(self, mock_routes):
+        transport = MockTransport(mock_routes)
+        c = ProPublicaNPEClient()
+        c._client = httpx.AsyncClient(
+            base_url="https://projects.propublica.org/nonprofits/api/v2",
+            transport=transport,
+        )
+        return c
+
+    @pytest.mark.asyncio
+    async def test_search(self, client):
+        result = await client.search(q="test")
+        assert result["organizations"][0]["name"] == "TEST NONPROFIT"
+
+    @pytest.mark.asyncio
+    async def test_search_with_c_code_filter(self, client):
+        result = await client.search(q="test", c_code=4)
+        assert "organizations" in result
+
+    @pytest.mark.asyncio
+    async def test_get_organization(self, client):
+        result = await client.get_organization(142007220)
+        assert result["organization"]["ein"] == 142007220
+        assert len(result["filings_with_data"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_get_organization_strips_dashes(self, client):
+        result = await client.get_organization("14-2007220")
+        assert result["organization"]["ein"] == 142007220
+
+    @pytest.mark.asyncio
+    async def test_raises_on_http_error(self):
+        transport = MockTransport({
+            "/search.json": {"status": 500, "json": {"error": "Server Error"}},
+        })
+        c = ProPublicaNPEClient()
+        c._client = httpx.AsyncClient(
+            base_url="https://projects.propublica.org/nonprofits/api/v2", transport=transport,
+        )
+        with pytest.raises(httpx.HTTPStatusError):
+            await c.search(q="test")

@@ -30,9 +30,10 @@ Candidates from the design doc — build once phases 2–3 have real data to tes
 - [ ] Timing correlation (contribution/lobbying spend vs. votes)
 - [ ] Industry concentration
 
-## 5. ProPublica Nonprofit Explorer (dark money)
-- [ ] `packed/propublica_client.py` — 501(c)(4) Form 990 filings
-- [ ] Cross-tool dark-money → Sift-sanctioned-entity detection pattern
+## ~~5. ProPublica Nonprofit Explorer (dark money)~~ ✓
+- ~~`packed/propublica_client.py` — Form 990 filings, 501(c)(4) c_code filter~~ ✓
+- Both client methods verified against the live API 2026-08-12
+- [ ] Cross-tool dark-money → Sift-sanctioned-entity detection pattern (still needs phase 4)
 
 ## 6. Cross-tool composition
 - [ ] Skill that calls both `packed` and `sift` for entity resolution

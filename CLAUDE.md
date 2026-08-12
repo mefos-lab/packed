@@ -12,9 +12,11 @@ from (`~/src/mefos-lab/PACKED_PLAN.md` in the private planning repo).
 
 ## Status
 
-OpenFEC (`packed/openfec_client.py`) and LDA (`packed/lda_client.py`)
-are both wired up — all client methods on both verified against their
-live APIs (2026-08-12). ProPublica Nonprofit Explorer is not yet built.
+All three planned data sources are wired up and verified against
+their live APIs (2026-08-12): OpenFEC (`packed/openfec_client.py`),
+LDA (`packed/lda_client.py`), and ProPublica Nonprofit Explorer
+(`packed/propublica_client.py`). Detection patterns (cross-source)
+are next — see `TODO.md`.
 
 ## Data Sources
 
@@ -22,7 +24,7 @@ live APIs (2026-08-12). ProPublica Nonprofit Explorer is not yet built.
 |--------|----------|------|--------|
 | OpenFEC | Committees, candidates, itemized contributions (Schedule A), disbursements (Schedule B) | Free API key via api.data.gov | Verified live |
 | LDA (Lobbying Disclosure Act) | Registrants, clients, filings (LD-1/LD-2), lobbyist political contributions (LD-203) | Free account + key via lda.gov | Verified live |
-| ProPublica Nonprofit Explorer | 501(c)(4) Form 990 filings | None | Planned |
+| ProPublica Nonprofit Explorer | 501(c)(4) Form 990 filings (dark money) | None | Verified live |
 
 The LD-203 link (lobbyist political contributions) is the reason this
 tool exists — it's the connective tissue between lobbying and campaign

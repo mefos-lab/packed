@@ -11,6 +11,7 @@ from mcp.types import Tool, TextContent
 
 from .openfec_client import OpenFECClient
 from .lda_client import LDAClient
+from .propublica_client import ProPublicaNPEClient
 from .errors import ServiceTracker, api_call
 
 
@@ -35,6 +36,9 @@ fec_client = OpenFECClient(api_key=_fec_key) if _fec_key else None
 
 _lda_key = os.environ.get("LDA_API_KEY", "").strip()
 lda_client = LDAClient(api_key=_lda_key) if _lda_key else None
+
+# No auth required
+propublica_client = ProPublicaNPEClient()
 
 
 def _not_configured(source: str, env_var: str) -> list[TextContent]:
@@ -224,6 +228,41 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+
+        # =====================================================================
+        # ProPublica Nonprofit Explorer tools
+        # =====================================================================
+        Tool(
+            name="propublica_search",
+            description=(
+                "Search Form 990 filings for tax-exempt organizations. Pass "
+                "c_code=4 to scope to 501(c)(4) social welfare organizations "
+                "— the dark-money category that doesn't have to disclose "
+                "donors but does have to file spending."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "q": {"type": "string", "description": "Keyword search — org name, alternate name, or city (optional)"},
+                    "page": {"type": "integer", "description": "Zero-indexed page number (optional, default 0)"},
+                    "state": {"type": "string", "description": "Two-letter US state/territory code (optional)"},
+                    "ntee": {"type": "integer", "description": "NTEE major group, 1-10 (optional)"},
+                    "c_code": {"type": "integer", "description": "501(c) subsection, e.g. 4 for 501(c)(4) (optional)"},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="propublica_get_organization",
+            description="Get full profile and Form 990 filing history for an organization by EIN.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ein": {"type": "string", "description": "Employer Identification Number, with or without dashes (from propublica_search)"},
+                },
+                "required": ["ein"],
+            },
+        ),
     ]
 
 
@@ -345,6 +384,24 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     client_name=arguments.get("client_name"),
                     registrant_id=arguments.get("registrant_id"),
                 ),
+            )
+
+        elif name == "propublica_search":
+            result = await api_call(
+                tracker, "ProPublica NPE", "/search.json",
+                lambda: propublica_client.search(
+                    q=arguments.get("q"),
+                    page=arguments.get("page", 0),
+                    state=arguments.get("state"),
+                    ntee=arguments.get("ntee"),
+                    c_code=arguments.get("c_code"),
+                ),
+            )
+
+        elif name == "propublica_get_organization":
+            result = await api_call(
+                tracker, "ProPublica NPE", "/organizations/{ein}.json",
+                lambda: propublica_client.get_organization(arguments["ein"]),
             )
 
         else:
