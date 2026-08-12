@@ -143,6 +143,29 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+        Tool(
+            name="fec_search_disbursements",
+            description=(
+                "Search itemized disbursements — where committee money goes "
+                "out (Schedule B). Set recipient_committee_id to trace "
+                "payments to another committee (leadership PAC / joint "
+                "fundraising committee transfers). Scope with committee_id, "
+                "recipient_name, and/or recipient_committee_id — this "
+                "dataset is very large."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "committee_id": {"type": "string", "description": "FEC committee ID of the spending committee (optional, but recommended)"},
+                    "recipient_name": {"type": "string", "description": "Recipient name (optional)"},
+                    "recipient_committee_id": {"type": "string", "description": "FEC committee ID of the receiving committee — use to trace transfers (optional)"},
+                    "two_year_transaction_period": {"type": "integer", "description": "Election cycle, e.g. 2026 (optional)"},
+                    "min_amount": {"type": "number", "description": "Minimum disbursement amount (optional)"},
+                    "max_amount": {"type": "number", "description": "Maximum disbursement amount (optional)"},
+                },
+                "required": [],
+            },
+        ),
 
         # =====================================================================
         # LDA (Lobbying Disclosure Act) tools
@@ -298,7 +321,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     _fec_tools = {
         "fec_search_candidates", "fec_get_candidate",
         "fec_search_committees", "fec_get_committee",
-        "fec_search_contributions",
+        "fec_search_contributions", "fec_search_disbursements",
     }
     _lda_tools = {
         "lda_search_filings", "lda_get_filing", "lda_search_contributions",
@@ -359,6 +382,19 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 lambda: fec_client.search_contributions(
                     committee_id=arguments.get("committee_id"),
                     contributor_name=arguments.get("contributor_name"),
+                    two_year_transaction_period=arguments.get("two_year_transaction_period"),
+                    min_amount=arguments.get("min_amount"),
+                    max_amount=arguments.get("max_amount"),
+                ),
+            )
+
+        elif name == "fec_search_disbursements":
+            result = await api_call(
+                tracker, "OpenFEC", "/schedules/schedule_b/",
+                lambda: fec_client.search_disbursements(
+                    committee_id=arguments.get("committee_id"),
+                    recipient_name=arguments.get("recipient_name"),
+                    recipient_committee_id=arguments.get("recipient_committee_id"),
                     two_year_transaction_period=arguments.get("two_year_transaction_period"),
                     min_amount=arguments.get("min_amount"),
                     max_amount=arguments.get("max_amount"),

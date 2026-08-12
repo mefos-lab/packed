@@ -62,6 +62,13 @@ class TestOpenFECClient:
             "/schedules/schedule_a/": {
                 "json": {"results": [{"contributor_name": "TEST DONOR", "contribution_receipt_amount": 100.0}]},
             },
+            "/schedules/schedule_b/": {
+                "json": {"results": [{
+                    "recipient_name": "TEST VENDOR",
+                    "recipient_committee_id": "C0TEST02",
+                    "disbursement_amount": 250.0,
+                }]},
+            },
             "/error/": {
                 "status": 500,
                 "json": {"message": "Server Error"},
@@ -107,6 +114,18 @@ class TestOpenFECClient:
     async def test_search_contributions(self, client):
         result = await client.search_contributions(committee_id="C0TEST01")
         assert result["results"][0]["contributor_name"] == "TEST DONOR"
+
+    @pytest.mark.asyncio
+    async def test_search_disbursements(self, client):
+        result = await client.search_disbursements(committee_id="C0TEST01")
+        assert result["results"][0]["recipient_name"] == "TEST VENDOR"
+
+    @pytest.mark.asyncio
+    async def test_search_disbursements_with_recipient_committee_id(self, client):
+        result = await client.search_disbursements(
+            committee_id="C0TEST01", recipient_committee_id="C0TEST02",
+        )
+        assert result["results"][0]["recipient_committee_id"] == "C0TEST02"
 
     @pytest.mark.asyncio
     async def test_api_key_included_in_params(self, client, mock_routes):

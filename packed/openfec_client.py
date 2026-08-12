@@ -128,3 +128,40 @@ class OpenFECClient:
         )
         resp.raise_for_status()
         return resp.json()
+
+    async def search_disbursements(
+        self,
+        committee_id: str | None = None,
+        recipient_name: str | None = None,
+        recipient_committee_id: str | None = None,
+        two_year_transaction_period: int | None = None,
+        min_amount: float | None = None,
+        max_amount: float | None = None,
+        per_page: int = 20,
+    ) -> dict[str, Any]:
+        """Search itemized disbursements — where committee money goes out
+        (Schedule B). Set recipient_committee_id to trace payments to
+        another committee (leadership PAC / JFC transfers).
+
+        At least one of committee_id, recipient_name, or
+        recipient_committee_id should be set — this endpoint covers a
+        very large dataset. Note: for very high-volume committees (e.g.
+        ActBlue), the response's pagination.count is not reliably
+        filtered even though the actual results are — confirmed against
+        the live API (2026-08-12). Don't trust count for those; trust
+        the returned results.
+        """
+        resp = await self._client.get(
+            "/schedules/schedule_b/",
+            params=self._params(
+                committee_id=committee_id,
+                recipient_name=recipient_name,
+                recipient_committee_id=recipient_committee_id,
+                two_year_transaction_period=two_year_transaction_period,
+                min_amount=min_amount,
+                max_amount=max_amount,
+                per_page=per_page,
+            ),
+        )
+        resp.raise_for_status()
+        return resp.json()
