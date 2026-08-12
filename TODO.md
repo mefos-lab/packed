@@ -22,7 +22,11 @@ Phased build order, per the design doc this repo was scaffolded from.
 - ~~`packed/lda_client.py` — filings (LD-1/LD-2), registrants, clients~~ ✓
 - ~~Lobbyist political contributions (LD-203) — the core lobbying↔contribution link~~ ✓
 - ~~Add `LDA` tools to server.py~~ ✓
-- All 6 client methods verified against the live API 2026-08-12
+- ~~Lobbyist/client entity coverage — `search_lobbyists`, `get_lobbyist`, `get_client`,
+  `get_contribution` (single LD-203 by UUID)~~ ✓ live-verified 2026-08-12. Closes the LDA
+  gaps identified in the phase-7 review. Lobbyists are a distinct entity from registrants
+  (a firm employs many) — 372 lobbyists under Akin Gump alone.
+- All 11 client methods verified against the live API 2026-08-12
 - Rate limit confirmed from live OpenAPI schema (120/min authenticated) — not a conservative guess like the others
 
 ## 4. Detection patterns
@@ -38,7 +42,9 @@ cross-source traversal layer, so each pattern is a bespoke function in
   matching missed abbreviation/expansion pairs like "ARKANSAS LEADERSHIP PAC" vs
   "ARKANSAS FOR LEADERSHIP POLITICAL ACTION COMMITTEE (ARKPAC)" (fixed: ratio
   against the shorter name, require a non-generic shared word).
-- [ ] Dual role — lobbyist for client X is also a bundler/major donor for a committee whose member sits on a committee X lobbies before. Still blocked: needs committee-assignment data (who sits on which committee) — not covered by any of the 3 current sources.
+- [ ] **Dual role** — lobbyist for client X is also a bundler/major donor for a committee whose
+  member sits on a committee X lobbies before. **No longer blocked** — source found, see
+  phase 8 below. Ready to build once congress-legislators is integrated.
 - [x] **Pattern 2: leadership_pac_transfers** ✓ — traces a leadership PAC's money flow: top
   Schedule A contributors funding it, and Schedule B transfers it makes to other committees
   (filtered to rows with a recipient_committee_id, i.e. not vendor spending). Live-verified
@@ -61,8 +67,12 @@ cross-source traversal layer, so each pattern is a bespoke function in
   *exact* per-participant split of a single bundled check, but its semantics weren't
   confirmed precisely enough to build on with confidence — documented in the module
   docstring as a known gap, not silently guessed at.
-- [ ] Timing correlation (contribution/lobbying spend vs. votes) — still blocked: needs legislative vote data, out of scope for all 3 current sources. Would need a 4th source.
-- [ ] Industry concentration — still blocked: needs committee-assignment data, same blocker as "dual role"
+- [ ] **Timing correlation** (contribution/lobbying spend vs. votes) — **no longer blocked**,
+  source found (congress.gov API has House roll-call votes from the 118th Congress / 2023
+  onward). See phase 8. Note the coverage limit: House only, 2023+ — Senate votes and
+  pre-2023 history are not available from this source.
+- [ ] **Industry concentration** — **no longer blocked**, same congress-legislators
+  committee-assignment source as "dual role". See phase 8.
 
 ## ~~5. ProPublica Nonprofit Explorer (dark money)~~ ✓
 - ~~`packed/propublica_client.py` — Form 990 filings, 501(c)(4) c_code filter~~ ✓
@@ -123,8 +133,62 @@ verifying each candidate gap actually exists live before trusting it:
   `get_organization` (confirmed live earlier) — same coverage, different shape.
 
 ### Own MCP toolset organization
-18 tools currently (6 fec_*, 6 lda_*, 2 propublica_*, 3 pattern_*), all in a flat
-per-source namespace. cyanheads/openfec-mcp-server manages 12 tools the same flat
-way with no hierarchical grouping. No evidence flat naming is causing discoverability
-problems yet — reconsider only if/when the count grows meaningfully past what's
-already been shown to work fine elsewhere (e.g. 20-25+).
+18 tools at review time (now 26), all in a flat per-source namespace.
+cyanheads/openfec-mcp-server manages 12 tools the same flat way with no hierarchical
+grouping. No evidence flat naming is causing discoverability problems yet — but at 26
+tools we're now past the 20-25 threshold this review flagged, so worth an actual look
+next time the count grows (especially once a 4th source lands).
+
+## 8. New sources for previously-blocked patterns (researched 2026-08-12, not yet built)
+
+All three remaining detection patterns were blocked on data none of the 3 current
+sources have. Both blockers now have a confirmed, free, live-verified source.
+
+### congress-legislators (committee assignments) — unblocks dual role + industry concentration
+Static YAML/JSON/CSV data files in a public GitHub repo (github.com/unitedstates/
+congress-legislators), maintained as a shared commons. No API key, no rate limit — just
+raw file fetches. Verified live 2026-08-12:
+- `committee-membership-current.yaml` (~292KB) — maps committee ID → list of members with
+  `name`, `party`, `rank`, `title` (Chairman / Ranking Member), and `bioguide` ID.
+- `committees-current.yaml` (~63KB) — committee metadata.
+- `legislators-current.yaml` (~1MB, 537 legislators) — **critically, includes an `id` block
+  with `fec` (a list of FEC candidate IDs), plus `bioguide`, `opensecrets`, `govtrack`, etc.**
+
+**Why this matters:** the `fec` ID field is the join key. Committee assignments link to
+legislators by `bioguide`, and legislators link to packed's existing FEC data by `fec`
+candidate ID — so committee membership can be joined to contribution/expenditure data
+without any fuzzy name matching. That was the thing that made these patterns infeasible.
+
+Concrete example of the full chain, confirmed during research: bioguide `B001236` is
+John Boozman, Chairman of `SSAF` (Senate Agriculture), FEC IDs `H2AR03176`/`S0AR00150` —
+and ARKPAC (already live-verified in pattern 2) is his leadership PAC. Leadership PAC →
+candidate → committee chairmanship, fully linkable.
+
+Caveat: committee membership is **current-only** (no historical snapshots), so patterns
+built on it describe the present, not a point-in-time past. Note that in any output.
+
+- [ ] Add a `congress_legislators_client.py` (fetch + parse YAML; consider caching since
+  these are static files, not a live API)
+- [ ] Build dual role pattern
+- [ ] Build industry concentration pattern
+
+### congress.gov API (roll-call votes) — unblocks timing correlation
+Official Library of Congress API at api.congress.gov. Requires a free API key (confirmed
+live: returns `API_KEY_MISSING` 403 without one, so key request is a real prerequisite).
+Covers bills, amendments, members, committees, and — added 2025 — House roll-call votes.
+
+**Coverage limit, important:** House roll-call votes only, from the 118th Congress (2023)
+onward. No Senate votes, no pre-2023 history. Timing correlation built on this can only
+speak to recent House activity — state that plainly in the pattern's output rather than
+implying full congressional coverage.
+
+- [ ] Request congress.gov API key (free, same general pattern as the OpenFEC key)
+- [ ] Add a `congress_gov_client.py`
+- [ ] Build timing correlation pattern (scoped to House, 2023+)
+
+### Also noted during research
+- ProPublica's Congress API (historically the go-to for this data) is **no longer
+  available** — don't reach for it, it's dead. Same for the Sunlight Congress API, whose
+  parent organization wound down its open-data work.
+- congress.gov also exposes committee data, overlapping congress-legislators. Prefer
+  congress-legislators for membership (no key, simpler), congress.gov for votes.
