@@ -2,6 +2,7 @@
 
 import json
 import os
+from dataclasses import asdict
 from pathlib import Path
 import asyncio
 import httpx
@@ -13,6 +14,7 @@ from .openfec_client import OpenFECClient
 from .lda_client import LDAClient
 from .propublica_client import ProPublicaNPEClient
 from .errors import ServiceTracker, api_call
+from . import patterns as patterns_module
 
 
 def _load_env():
@@ -263,6 +265,31 @@ async def list_tools() -> list[Tool]:
                 "required": ["ein"],
             },
         ),
+
+        # =====================================================================
+        # Detection patterns
+        # =====================================================================
+        Tool(
+            name="pattern_lobbyist_contribution_corroboration",
+            description=(
+                "Cross-reference a lobbyist or registrant's LD-203 political "
+                "contributions against FEC Schedule A itemized receipts. "
+                "Corroboration across both independently-filed sources is a "
+                "credibility signal — an unconfirmed contribution isn't "
+                "necessarily suspicious (it may fall under FEC's itemization "
+                "threshold), but the pattern surfaces which contributions "
+                "can and can't be independently verified."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "lobbyist_name": {"type": "string", "description": "Individual lobbyist name (optional)"},
+                    "registrant_name": {"type": "string", "description": "Registrant/firm name (optional)"},
+                    "filing_year": {"type": "integer", "description": "LD-203 filing year, e.g. 2025 (optional)"},
+                },
+                "required": [],
+            },
+        ),
     ]
 
 
@@ -282,6 +309,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return _not_configured("OpenFEC", "OPENFEC_API_KEY")
     if name in _lda_tools and lda_client is None:
         return _not_configured("LDA", "LDA_API_KEY")
+    if name == "pattern_lobbyist_contribution_corroboration":
+        if fec_client is None:
+            return _not_configured("OpenFEC", "OPENFEC_API_KEY")
+        if lda_client is None:
+            return _not_configured("LDA", "LDA_API_KEY")
 
     tracker = ServiceTracker()
 
@@ -403,6 +435,15 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 tracker, "ProPublica NPE", "/organizations/{ein}.json",
                 lambda: propublica_client.get_organization(arguments["ein"]),
             )
+
+        elif name == "pattern_lobbyist_contribution_corroboration":
+            match = await patterns_module.detect_lobbyist_contribution_corroboration(
+                lda_client, fec_client,
+                lobbyist_name=arguments.get("lobbyist_name"),
+                registrant_name=arguments.get("registrant_name"),
+                filing_year=arguments.get("filing_year"),
+            )
+            result = asdict(match)
 
         else:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]

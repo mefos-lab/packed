@@ -14,7 +14,7 @@ Packed cross-references PAC/committee contributions, federal lobbying registrati
 
 ## Status
 
-All three planned data sources are integrated and verified against their live APIs: OpenFEC (candidates, committees, itemized contributions), LDA (registrants, clients, filings, lobbyist contributions), and ProPublica Nonprofit Explorer (501(c)(4) dark-money filings). Cross-source detection patterns are next — see `TODO.md`.
+All three planned data sources are integrated and verified against their live APIs: OpenFEC (candidates, committees, itemized contributions), LDA (registrants, clients, filings, lobbyist contributions), and ProPublica Nonprofit Explorer (501(c)(4) dark-money filings). First cross-source detection pattern — corroborating LD-203 lobbyist contributions against FEC's independently-filed records — is built and live-verified. See `TODO.md` for what's next and what's currently blocked on missing data.
 
 ## Quick start
 

@@ -15,8 +15,9 @@ from (`~/src/mefos-lab/PACKED_PLAN.md` in the private planning repo).
 All three planned data sources are wired up and verified against
 their live APIs (2026-08-12): OpenFEC (`packed/openfec_client.py`),
 LDA (`packed/lda_client.py`), and ProPublica Nonprofit Explorer
-(`packed/propublica_client.py`). Detection patterns (cross-source)
-are next — see `TODO.md`.
+(`packed/propublica_client.py`). First cross-source detection pattern
+(`packed/patterns.py`) is built and live-verified. See `TODO.md` for
+which further patterns are blocked on data this repo doesn't have yet.
 
 ## Data Sources
 
@@ -92,6 +93,27 @@ with default args: `lambda n=name: client.search(n)`.
 source, look up its documented rate limit and add an entry. LDA's
 120/min limit is confirmed from its live OpenAPI schema; OpenFEC and
 ProPublica NPE entries are conservative estimates pending confirmation.
+
+## Detection Patterns
+
+No generic condition/rule engine like Sift's `pattern_matcher.py` —
+Sift's engine evaluates declarative YAML conditions against a unified
+cross-source traversal graph, and packed has no equivalent graph layer
+(each MCP tool call returns flat records from one source, not a joined
+entity graph). Building a generic engine before there's a real graph
+to evaluate against would be premature abstraction. Instead, each
+pattern in `packed/patterns.py` is a bespoke async function that
+queries the relevant clients directly and applies domain-specific
+matching logic. Revisit the generic-engine question once several
+patterns exist and their shared structure is actually clear.
+
+When adding a pattern: verify matching logic against live data before
+trusting it. Pattern 1 (`lobbyist_contribution_corroboration`) shipped
+with two real bugs caught only by live-testing against a real
+registrant — a silently truncated result page (client defaulted to 20
+results/page; a single contributor can exceed that) and a fuzzy-name-
+match threshold that missed legitimate abbreviation/expansion pairs.
+Mocked tests alone would not have caught either.
 
 ## Identity and Privacy
 
