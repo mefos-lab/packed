@@ -47,3 +47,13 @@ cross-source traversal layer, so each pattern is a bespoke function in
 
 ## 6. Cross-tool composition
 - [ ] Skill that calls both `packed` and `sift` for entity resolution
+
+## 7. Provider capability review (not started)
+Re-read the full docs for each provider — OpenFEC (api.open.fec.gov/developers/),
+LDA (lda.gov/api/openapi/v1/), ProPublica Nonprofit Explorer
+(projects.propublica.org/nonprofits/api) — beyond what was needed for the
+endpoints already built, to check for other capabilities worth exposing
+(e.g. OpenFEC has electioneering communications, 24/48-hour reports, F1
+registrations; LDA's constants endpoints; bulk/download data). Also check
+whether any of these providers already publish their own MCP server/toolset
+that's worth learning from or composing with instead of reimplementing.
