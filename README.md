@@ -54,7 +54,7 @@ LDA_API_KEY=<your-key>       # Required for lda_* tools — free account at lda.
 
 | Source | Coverage | Auth |
 |--------|----------|------|
-| OpenFEC | Committees, candidates, itemized contributions (Schedule A), itemized disbursements incl. committee-to-committee transfers (Schedule B) | Free API key |
+| OpenFEC | Committees, candidates, itemized contributions/disbursements/independent expenditures/coordinated party expenditures, financial totals, candidate-committee linkage | Free API key |
 | LDA (Lobbying Disclosure Act) | Registrants, clients, filings (LD-1/LD-2), lobbyist political contributions (LD-203) | Free account + key |
 | ProPublica Nonprofit Explorer | 501(c)(4) Form 990 filings (dark money) | None |
 

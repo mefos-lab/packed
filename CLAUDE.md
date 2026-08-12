@@ -26,7 +26,7 @@ this repo doesn't have yet.
 
 | Source | Coverage | Auth | Status |
 |--------|----------|------|--------|
-| OpenFEC | Committees, candidates, itemized contributions (Schedule A), disbursements (Schedule B) | Free API key via api.data.gov | Verified live |
+| OpenFEC | Committees, candidates, itemized contributions (A), disbursements (B), independent expenditures (E), coordinated party expenditures (F), committee/candidate totals, candidate-committee linkage | Free API key via api.data.gov | Verified live |
 | LDA (Lobbying Disclosure Act) | Registrants, clients, filings (LD-1/LD-2), lobbyist political contributions (LD-203) | Free account + key via lda.gov | Verified live |
 | ProPublica Nonprofit Explorer | 501(c)(4) Form 990 filings (dark money) | None | Verified live |
 

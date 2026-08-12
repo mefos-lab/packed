@@ -166,6 +166,84 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+        Tool(
+            name="fec_search_independent_expenditures",
+            description=(
+                "Search independent expenditures (Schedule E) — spending "
+                "by a committee not coordinated with a candidate, "
+                "expressly advocating for or against them. Scope with "
+                "candidate_id and/or committee_id."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "string", "description": "FEC candidate ID (optional, but recommended)"},
+                    "committee_id": {"type": "string", "description": "FEC committee ID of the spending committee (optional, but recommended)"},
+                    "support_oppose_indicator": {"type": "string", "enum": ["S", "O"], "description": "S=supporting, O=opposing (optional)"},
+                    "two_year_transaction_period": {"type": "integer", "description": "Election cycle, e.g. 2026 (optional)"},
+                    "min_amount": {"type": "number", "description": "Minimum expenditure amount (optional)"},
+                    "max_amount": {"type": "number", "description": "Maximum expenditure amount (optional)"},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="fec_search_coordinated_expenditures",
+            description=(
+                "Search coordinated party expenditures (Schedule F) — "
+                "spending by a party committee made on behalf of a "
+                "candidate, a distinct disclosure category from "
+                "independent expenditures. Scope with committee_id "
+                "and/or candidate_id."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "committee_id": {"type": "string", "description": "FEC committee ID of the party committee (optional, but recommended)"},
+                    "candidate_id": {"type": "string", "description": "FEC candidate ID (optional, but recommended)"},
+                    "two_year_transaction_period": {"type": "integer", "description": "Election cycle, e.g. 2026 (optional)"},
+                    "min_amount": {"type": "number", "description": "Minimum expenditure amount (optional)"},
+                    "max_amount": {"type": "number", "description": "Maximum expenditure amount (optional)"},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="fec_get_committee_totals",
+            description="Get a committee's aggregated financial totals (receipts, disbursements, cash on hand) per reporting period, without pulling itemized data.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "committee_id": {"type": "string", "description": "FEC committee ID"},
+                    "cycle": {"type": "integer", "description": "Two-year election cycle, e.g. 2026 (optional)"},
+                },
+                "required": ["committee_id"],
+            },
+        ),
+        Tool(
+            name="fec_get_candidate_totals",
+            description="Get a candidate's aggregated financial totals (receipts, disbursements, cash on hand) per election, without pulling itemized data.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "string", "description": "FEC candidate ID"},
+                    "cycle": {"type": "integer", "description": "Two-year election cycle, e.g. 2026 (optional)"},
+                },
+                "required": ["candidate_id"],
+            },
+        ),
+        Tool(
+            name="fec_get_candidate_committees",
+            description="Get the committees associated with a candidate — resolves candidate-to-committee linkage directly instead of inferring it from search results.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "string", "description": "FEC candidate ID"},
+                    "cycle": {"type": "integer", "description": "Two-year election cycle, e.g. 2026 (optional)"},
+                },
+                "required": ["candidate_id"],
+            },
+        ),
 
         # =====================================================================
         # LDA (Lobbying Disclosure Act) tools
@@ -367,6 +445,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         "fec_search_candidates", "fec_get_candidate",
         "fec_search_committees", "fec_get_committee",
         "fec_search_contributions", "fec_search_disbursements",
+        "fec_search_independent_expenditures", "fec_search_coordinated_expenditures",
+        "fec_get_committee_totals", "fec_get_candidate_totals",
+        "fec_get_candidate_committees",
     }
     _lda_tools = {
         "lda_search_filings", "lda_get_filing", "lda_search_contributions",
@@ -447,6 +528,55 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     two_year_transaction_period=arguments.get("two_year_transaction_period"),
                     min_amount=arguments.get("min_amount"),
                     max_amount=arguments.get("max_amount"),
+                ),
+            )
+
+        elif name == "fec_search_independent_expenditures":
+            result = await api_call(
+                tracker, "OpenFEC", "/schedules/schedule_e/",
+                lambda: fec_client.search_independent_expenditures(
+                    candidate_id=arguments.get("candidate_id"),
+                    committee_id=arguments.get("committee_id"),
+                    support_oppose_indicator=arguments.get("support_oppose_indicator"),
+                    two_year_transaction_period=arguments.get("two_year_transaction_period"),
+                    min_amount=arguments.get("min_amount"),
+                    max_amount=arguments.get("max_amount"),
+                ),
+            )
+
+        elif name == "fec_search_coordinated_expenditures":
+            result = await api_call(
+                tracker, "OpenFEC", "/schedules/schedule_f/",
+                lambda: fec_client.search_coordinated_expenditures(
+                    committee_id=arguments.get("committee_id"),
+                    candidate_id=arguments.get("candidate_id"),
+                    two_year_transaction_period=arguments.get("two_year_transaction_period"),
+                    min_amount=arguments.get("min_amount"),
+                    max_amount=arguments.get("max_amount"),
+                ),
+            )
+
+        elif name == "fec_get_committee_totals":
+            result = await api_call(
+                tracker, "OpenFEC", "/committee/{id}/totals/",
+                lambda: fec_client.get_committee_totals(
+                    arguments["committee_id"], cycle=arguments.get("cycle"),
+                ),
+            )
+
+        elif name == "fec_get_candidate_totals":
+            result = await api_call(
+                tracker, "OpenFEC", "/candidate/{id}/totals/",
+                lambda: fec_client.get_candidate_totals(
+                    arguments["candidate_id"], cycle=arguments.get("cycle"),
+                ),
+            )
+
+        elif name == "fec_get_candidate_committees":
+            result = await api_call(
+                tracker, "OpenFEC", "/candidate/{id}/committees/",
+                lambda: fec_client.get_candidate_committees(
+                    arguments["candidate_id"], cycle=arguments.get("cycle"),
                 ),
             )
 

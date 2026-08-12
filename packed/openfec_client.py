@@ -165,3 +165,107 @@ class OpenFECClient:
         )
         resp.raise_for_status()
         return resp.json()
+
+    async def search_independent_expenditures(
+        self,
+        candidate_id: str | None = None,
+        committee_id: str | None = None,
+        support_oppose_indicator: str | None = None,
+        two_year_transaction_period: int | None = None,
+        min_amount: float | None = None,
+        max_amount: float | None = None,
+        per_page: int = 20,
+    ) -> dict[str, Any]:
+        """Search independent expenditures (Schedule E) — spending by a
+        committee not coordinated with a candidate, expressly advocating
+        for or against them.
+
+        support_oppose_indicator: 'S' (supporting) or 'O' (opposing).
+        At least one of candidate_id or committee_id should be set.
+        """
+        resp = await self._client.get(
+            "/schedules/schedule_e/",
+            params=self._params(
+                candidate_id=candidate_id,
+                committee_id=committee_id,
+                support_oppose_indicator=support_oppose_indicator,
+                two_year_transaction_period=two_year_transaction_period,
+                min_amount=min_amount,
+                max_amount=max_amount,
+                per_page=per_page,
+            ),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def search_coordinated_expenditures(
+        self,
+        committee_id: str | None = None,
+        candidate_id: str | None = None,
+        two_year_transaction_period: int | None = None,
+        min_amount: float | None = None,
+        max_amount: float | None = None,
+        per_page: int = 20,
+    ) -> dict[str, Any]:
+        """Search coordinated party expenditures (Schedule F) — spending
+        by a party committee made on behalf of (in coordination with) a
+        candidate, a distinct disclosure category from independent
+        expenditures.
+
+        At least one of committee_id or candidate_id should be set.
+        """
+        resp = await self._client.get(
+            "/schedules/schedule_f/",
+            params=self._params(
+                committee_id=committee_id,
+                candidate_id=candidate_id,
+                two_year_transaction_period=two_year_transaction_period,
+                min_amount=min_amount,
+                max_amount=max_amount,
+                per_page=per_page,
+            ),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_committee_totals(
+        self, committee_id: str, cycle: int | None = None,
+    ) -> dict[str, Any]:
+        """Get a committee's aggregated financial totals (receipts,
+        disbursements, cash on hand) per reporting period, without
+        pulling itemized data.
+        """
+        resp = await self._client.get(
+            f"/committee/{committee_id}/totals/",
+            params=self._params(cycle=cycle),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_candidate_totals(
+        self, candidate_id: str, cycle: int | None = None,
+    ) -> dict[str, Any]:
+        """Get a candidate's aggregated financial totals (receipts,
+        disbursements, cash on hand) per election, without pulling
+        itemized data.
+        """
+        resp = await self._client.get(
+            f"/candidate/{candidate_id}/totals/",
+            params=self._params(cycle=cycle),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_candidate_committees(
+        self, candidate_id: str, cycle: int | None = None,
+    ) -> dict[str, Any]:
+        """Get the committees associated with a candidate — resolves
+        candidate-to-committee linkage directly instead of inferring it
+        from search results.
+        """
+        resp = await self._client.get(
+            f"/candidate/{candidate_id}/committees/",
+            params=self._params(cycle=cycle),
+        )
+        resp.raise_for_status()
+        return resp.json()

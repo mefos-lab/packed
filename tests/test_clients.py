@@ -69,6 +69,29 @@ class TestOpenFECClient:
                     "disbursement_amount": 250.0,
                 }]},
             },
+            "/schedules/schedule_e/": {
+                "json": {"results": [{
+                    "candidate_id": "H0TEST01",
+                    "support_oppose_indicator": "S",
+                    "expenditure_amount": 1000.0,
+                }]},
+            },
+            "/schedules/schedule_f/": {
+                "json": {"results": [{
+                    "committee_id": "C0TEST01",
+                    "candidate_id": "H0TEST01",
+                    "expenditure_amount": 500.0,
+                }]},
+            },
+            "/committee/C0TEST01/totals/": {
+                "json": {"results": [{"committee_id": "C0TEST01", "receipts": 50000.0}]},
+            },
+            "/candidate/H0TEST01/totals/": {
+                "json": {"results": [{"candidate_id": "H0TEST01", "receipts": 75000.0}]},
+            },
+            "/candidate/H0TEST01/committees/": {
+                "json": {"results": [{"committee_id": "C0TEST01", "name": "TEST PAC"}]},
+            },
             "/error/": {
                 "status": 500,
                 "json": {"message": "Server Error"},
@@ -119,6 +142,33 @@ class TestOpenFECClient:
     async def test_search_disbursements(self, client):
         result = await client.search_disbursements(committee_id="C0TEST01")
         assert result["results"][0]["recipient_name"] == "TEST VENDOR"
+
+    @pytest.mark.asyncio
+    async def test_search_independent_expenditures(self, client):
+        result = await client.search_independent_expenditures(
+            candidate_id="H0TEST01", support_oppose_indicator="S",
+        )
+        assert result["results"][0]["support_oppose_indicator"] == "S"
+
+    @pytest.mark.asyncio
+    async def test_search_coordinated_expenditures(self, client):
+        result = await client.search_coordinated_expenditures(committee_id="C0TEST01")
+        assert result["results"][0]["committee_id"] == "C0TEST01"
+
+    @pytest.mark.asyncio
+    async def test_get_committee_totals(self, client):
+        result = await client.get_committee_totals("C0TEST01")
+        assert result["results"][0]["receipts"] == 50000.0
+
+    @pytest.mark.asyncio
+    async def test_get_candidate_totals(self, client):
+        result = await client.get_candidate_totals("H0TEST01")
+        assert result["results"][0]["receipts"] == 75000.0
+
+    @pytest.mark.asyncio
+    async def test_get_candidate_committees(self, client):
+        result = await client.get_candidate_committees("H0TEST01")
+        assert result["results"][0]["committee_id"] == "C0TEST01"
 
     @pytest.mark.asyncio
     async def test_search_disbursements_with_recipient_committee_id(self, client):

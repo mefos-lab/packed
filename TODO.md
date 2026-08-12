@@ -9,10 +9,14 @@ Phased build order, per the design doc this repo was scaffolded from.
 - ~~packed/server.py — MCP tools for the above~~ ✓
 - ~~tests/ — mocked-HTTP tests for errors.py and openfec_client.py~~ ✓
 
-## 2. OpenFEC — expand coverage
+## ~~2. OpenFEC — expand coverage~~ ✓
 - [x] Confirm endpoint paths/params against a real key ✓ verified live 2026-08-12
 - [x] Add disbursements (Schedule B) — `fec_search_disbursements`, live-verified 2026-08-12. `recipient_committee_id` traces committee-to-committee transfers (leadership PAC / JFC), which unblocks patterns 2-3 below. Known API quirk: `pagination.count` isn't reliably filtered for very high-volume committees (e.g. ActBlue) even though the actual results are — documented in the client docstring, don't trust count for those.
-- [ ] Add independent expenditures
+- [x] Add independent expenditures (Schedule E) — `fec_search_independent_expenditures`, live-verified 2026-08-12
+- [x] Add coordinated party expenditures (Schedule F) — `fec_search_coordinated_expenditures`, live-verified 2026-08-12
+- [x] Add committee/candidate financial totals — `fec_get_committee_totals`, `fec_get_candidate_totals`, live-verified 2026-08-12
+- [x] Add candidate↔committee linkage — `fec_get_candidate_committees`, live-verified 2026-08-12
+- All 5 additions came directly from the phase-7 provider capability review (confirmed gaps vs. a competing OpenFEC MCP server, each verified live before building). 11 fec_* tools now, 22 MCP tools total.
 
 ## ~~3. LDA (lobbying)~~ ✓
 - ~~`packed/lda_client.py` — filings (LD-1/LD-2), registrants, clients~~ ✓
