@@ -57,3 +57,10 @@ endpoints already built, to check for other capabilities worth exposing
 registrations; LDA's constants endpoints; bulk/download data). Also check
 whether any of these providers already publish their own MCP server/toolset
 that's worth learning from or composing with instead of reimplementing.
+
+Separately: review how packed organizes its *own* MCP toolset as the tool
+count grows (currently 15: 6 fec_*, 6 lda_*, 2 propublica_*, 1 pattern_*).
+Consider whether tools should stay one flat namespace per source (current
+approach) or whether grouping/renaming is worth it for discoverability once
+more sources and patterns are added — informed by whatever the provider
+review above turns up, not decided in isolation from it.
