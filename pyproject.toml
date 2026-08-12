@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "packed"
+version = "0.1.0"
+description = "MCP server that cross-references PAC contributions, federal lobbying activity, and dark-money spending"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+dependencies = [
+    "mcp>=1.0.0",
+    "httpx>=0.27.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["packed"]
+
+[project.scripts]
+packed = "packed.server:main"
