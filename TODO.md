@@ -239,33 +239,32 @@ Fixed for now by pinning `mcp>=1.0.0,<2` and adding `tests/test_server.py`,
 which imports the server and asserts tools register — so this fails loudly next
 time rather than silently.
 
-- [ ] Migrate to the mcp 2.0 API and lift the pin. Latest 1.x is 1.29.0, so
-      there's runway, but the pin shouldn't be permanent.
+- [x] **Migrated to mcp 2.0** ✓ (2026-08-13). `mcp>=2,<3` in pyproject; the 1.x->2.x
+      break is absorbed by `packed/mcp_compat.py` rather than by rewriting tools.
 
-  **API research (done 2026-08-13, against a real mcp 2.0.0 install — not docs).**
-  The two versions are structurally different, not renamed:
+      **Approach and why.** 2.0 derives each tool's schema from a Python function
+      signature. Rewriting all 32 tools that way would have silently dropped enums
+      (`office`: H/S/P, `support_oppose_indicator`: S/O), per-field descriptions and
+      required/optional distinctions. Instead the shim: generates a handler whose
+      *real* signature mirrors each schema (the manager validates against the
+      function, not the advertised schema, so `**kwargs` is rejected), registers it
+      via `Tool.from_function`, then overwrites the derived schema with the
+      hand-authored one and points the handler at the existing dispatcher. Result:
+      all 32 schemas advertised byte-identical, verified.
 
-  | | mcp 1.x (what we use) | mcp 2.0 |
-  |---|---|---|
-  | Registration | `@server.list_tools()` returning `list[Tool]` with hand-written JSON Schema | tool-manager based; `@server.tool()` decorator or `add_tool(fn, name=, description=)`, **schema derived from the function signature** |
-  | Dispatch | single `@server.call_tool()` if/elif dispatcher | per-tool callables, via `MCPServer.call_tool` -> `self._tool_manager.call_tool(...)` |
-  | Transport | `async with stdio_server() as (r, w): await server.run(r, w, ...)` | `await server.run_stdio_async()` |
-  | Class | `mcp.server.Server` | `mcp.server.MCPServer` (also exported as `Server`) |
+      Tool definitions now use a **local** `Tool` dataclass in `server.py` instead of
+      the SDK type, so the next API break touches the shim rather than 32 definitions.
 
-  `MCPServer.__init__` does accept `tools: list[Tool] | None` (the `mcp_types.Tool`
-  wire type, so explicit inputSchema is expressible) — worth confirming whether that
-  path can register a handler alongside an explicit schema, since it would preserve
-  the hand-authored schemas and make this a far smaller change than rewriting all 32
-  tools as typed functions.
+      **Known seam:** the shim writes `tool.parameters` and the manager's private
+      `_tools` dict — 2.0 exposes no public way to register a pre-built schema, so
+      this is deliberate. Guarded by
+      `tests/test_server.py::test_registered_schemas_match_definitions`, which
+      compares every advertised schema against its definition, so an SDK change
+      fails loudly rather than degrading schemas silently.
 
-  **Why this needs its own session, not a tail-end sprint:** all 32 tools carry
-  hand-authored schemas with enums (`office`: H/S/P, `support_oppose_indicator`:
-  S/O), per-field descriptions, and required/optional distinctions. Signature-derived
-  schemas would need `Annotated`/`Field` to preserve that fidelity. The failure mode
-  is silent — a subtly degraded schema means the model calls the tool slightly wrong,
-  and no test in this repo would catch it (the server smoke tests assert a schema
-  exists, not that it's faithful). Budget real time and diff the generated schemas
-  against the current hand-written ones before shipping.
+      Other 2.0 changes hit along the way: `Server` -> `MCPServer`; `mcp.types` ->
+      `mcp_types`; the wire type's `inputSchema` -> `input_schema`; and the stdio
+      transport's `stdio_server()` context manager -> `await server.run_stdio_async()`.
 - [ ] Consider whether Sift has the same exposure — it uses the same
       `@server.list_tools()` decorator pattern and may have the same unpinned
       dependency.

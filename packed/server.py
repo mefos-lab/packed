@@ -5,10 +5,27 @@ import os
 from dataclasses import asdict
 from pathlib import Path
 import asyncio
+from dataclasses import dataclass
 import httpx
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
+from mcp.server import MCPServer
+from mcp_types import TextContent
+
+from .mcp_compat import register_tools
+
+
+@dataclass
+class Tool:
+    """This server's own tool definition.
+
+    Deliberately local rather than the SDK's type: these definitions are
+    the source of truth for what is advertised, and keeping them free of
+    the SDK means an API change like the 1.x -> 2.x one touches the
+    registration shim (packed/mcp_compat.py) instead of all 32 tools.
+    """
+
+    name: str
+    description: str
+    inputSchema: dict
 
 from .openfec_client import OpenFECClient
 from .lda_client import LDAClient
@@ -32,7 +49,7 @@ def _load_env():
 
 _load_env()
 
-server = Server("packed")
+server = MCPServer(name="packed")
 
 _fec_key = os.environ.get("OPENFEC_API_KEY", "").strip()
 fec_client = OpenFECClient(api_key=_fec_key) if _fec_key else None
@@ -56,8 +73,8 @@ def _not_configured(source: str, env_var: str) -> list[TextContent]:
     )]
 
 
-@server.list_tools()
 async def list_tools() -> list[Tool]:
+    """The advertised tool set — source of truth for every schema."""
     return [
         # =====================================================================
         # OpenFEC tools
@@ -589,7 +606,6 @@ async def list_tools() -> list[Tool]:
     ]
 
 
-@server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     _fec_tools = {
         "fec_search_candidates", "fec_get_candidate",
@@ -939,10 +955,15 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=f"Error: {type(e).__name__}: {e}")]
 
 
+async def _register() -> None:
+    """Register the tool set on the 2.x server, schemas preserved verbatim."""
+    register_tools(server, await list_tools(), call_tool)
+
+
 def main():
     async def run():
-        async with stdio_server() as (read_stream, write_stream):
-            await server.run(read_stream, write_stream, server.create_initialization_options())
+        await _register()
+        await server.run_stdio_async()
 
     asyncio.run(run())
 

@@ -118,13 +118,26 @@ queries the relevant clients directly and applies domain-specific
 matching logic. Revisit the generic-engine question once several
 patterns exist and their shared structure is actually clear.
 
-**The MCP server is pinned to `mcp<2`.** mcp 2.0 removed the
-`@server.list_tools()` / `@server.call_tool()` decorator API this
-server is built on. With the previous unpinned `mcp>=1.0.0`, pip
-installed 2.0.0 and `packed/server.py` silently stopped importing —
-undetected because no test imported it. `tests/test_server.py` now
-imports the server and asserts tools register, so this fails loudly.
-Migrating to the 2.0 API is tracked in TODO.md phase 9.
+**The MCP server runs on mcp 2.x via a shim.** mcp 2.0 removed the
+`@server.list_tools()` / `@server.call_tool()` decorator API this server
+was built on, and replaced it with a tool manager that derives each
+tool's schema from a Python function signature. Rather than rewrite all
+32 tools as typed functions — which would silently lose the enums,
+per-field descriptions and required/optional distinctions the
+hand-authored schemas carry — `packed/mcp_compat.py` keeps those schemas
+verbatim and adapts them to the 2.0 manager.
+
+Tool definitions live in `server.py`'s `list_tools()` using a **local**
+`Tool` dataclass, deliberately not the SDK's type: they're the source of
+truth for what's advertised, so keeping them SDK-free means the next API
+break touches the shim, not all 32 definitions.
+
+The shim writes a private attribute of the SDK's tool manager, because
+2.0 has no public way to register a pre-built schema. That seam is
+guarded by `tests/test_server.py::test_registered_schemas_match_definitions`,
+which asserts every advertised schema is byte-identical to its
+definition — so an SDK change fails loudly instead of quietly degrading
+what the model sees.
 
 **Don't wrap cache-backed client methods in `api_call()`.** It charges
 the per-service rate limit, which is correct for HTTP but wrong for
