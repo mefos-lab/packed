@@ -15,11 +15,13 @@ from (`~/src/mefos-lab/PACKED_PLAN.md` in the private planning repo).
 Four data sources wired up and verified live (2026-08-12): OpenFEC
 (`packed/openfec_client.py`), LDA (`packed/lda_client.py`), ProPublica
 Nonprofit Explorer (`packed/propublica_client.py`), and
-congress-legislators (`packed/congress_legislators_client.py`). Four
-detection patterns built and live-verified in `packed/patterns.py`
-(lobbyist contribution corroboration, leadership PAC transfers, JFC
-obscuring — the latter two share a `_trace_committee_money_flow()`
-helper — and lobbying money by recipient committee seat).
+congress-legislators (`packed/congress_legislators_client.py`). Five
+detection patterns built and live-verified in `packed/patterns.py`.
+Two pairs share extracted helpers: leadership PAC transfers and JFC
+obscuring share `_trace_committee_money_flow()`; lobbying money by
+committee seat and industry concentration share `_CommitteeSeatTally`.
+Each helper was extracted when a second consumer appeared, not
+speculatively.
 
 congress-legislators is the odd one out architecturally: it's static
 YAML files fetched whole from raw GitHub, not a query API, so the

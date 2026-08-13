@@ -532,3 +532,139 @@ class TestDetectLobbyingMoneyToCommitteeSeats:
         lda, cong = _make_lda_and_congress(lda_routes)
         r = await detect_lobbying_money_to_committee_seats(lda, cong, registrant_name="test firm")
         assert r.status == "ERROR"
+
+
+# =============================================================================
+# detect_industry_concentration tests
+# =============================================================================
+
+from packed.patterns import detect_industry_concentration
+
+
+def _sched_b_to_candidate_cmte(recipient_id="C0CAND01", cand_ids=("H2TEST001",),
+                                name="CANDIDATE ONE FOR CONGRESS", amount=5000.0):
+    return {
+        "recipient_committee_id": recipient_id,
+        "recipient_committee": {"name": name, "candidate_ids": list(cand_ids)},
+        "recipient_name": name,
+        "disbursement_amount": amount,
+    }
+
+
+def _sched_b_to_intermediary(recipient_id="C0LEAD99", name="SOME LEADERSHIP PAC", amount=7000.0):
+    """A committee with no candidate of its own — cannot be followed."""
+    return {
+        "recipient_committee_id": recipient_id,
+        "recipient_committee": {"name": name, "candidate_ids": []},
+        "recipient_name": name,
+        "disbursement_amount": amount,
+    }
+
+
+def _make_fec_and_congress(fec_routes):
+    fec = OpenFECClient(api_key="test_key")
+    fec._client = httpx.AsyncClient(
+        base_url="https://api.open.fec.gov/v1", transport=MockTransport(fec_routes),
+    )
+    cong = CongressLegislatorsClient()
+    cong._client = httpx.AsyncClient(
+        base_url="https://raw.githubusercontent.com/unitedstates/congress-legislators/main",
+        transport=YamlMockTransport({
+            "committee-membership-current.yaml": MEMBERSHIP_YAML,
+            "committees-current.yaml": COMMITTEES_YAML,
+            "legislators-current.yaml": LEGISLATORS_YAML,
+        }),
+    )
+    return fec, cong
+
+
+_PAC = {"committee_id": "C0PAC001", "name": "TEST INDUSTRY PAC",
+        "designation_full": "Unauthorized", "committee_type_full": "PAC"}
+
+
+class TestDetectIndustryConcentration:
+    @pytest.mark.asyncio
+    async def test_attributes_via_candidate_id_not_name(self):
+        """The join is identifier-based end to end."""
+        fec_routes = {
+            "/committee/C0PAC001/": {"json": {"results": [_PAC]}},
+            "/schedules/schedule_b/": {"json": {"results": [_sched_b_to_candidate_cmte()]}},
+        }
+        fec, cong = _make_fec_and_congress(fec_routes)
+        r = await detect_industry_concentration(fec, cong, committee_id="C0PAC001")
+        assert r.status == "ACTIVE"
+        assert r.stats["attributed_to_sitting_members"] == 5000.0
+        ssaf = next(f for f in r.findings if f["committee_id"] == "SSAF")
+        assert "Test Chairman" in ssaf["recipients"]
+
+    @pytest.mark.asyncio
+    async def test_intermediary_reported_not_dropped(self):
+        """Money to a committee with no candidate must surface, not vanish."""
+        fec_routes = {
+            "/committee/C0PAC001/": {"json": {"results": [_PAC]}},
+            "/schedules/schedule_b/": {"json": {"results": [_sched_b_to_intermediary()]}},
+        }
+        fec, cong = _make_fec_and_congress(fec_routes)
+        r = await detect_industry_concentration(fec, cong, committee_id="C0PAC001")
+        assert r.stats["attributed_to_sitting_members"] == 0.0
+        assert r.stats["unattributed_amount"] == 7000.0
+        assert r.stats["unattributed_recipients"][0]["recipient"] == "SOME LEADERSHIP PAC"
+        assert r.findings == []
+
+    @pytest.mark.asyncio
+    async def test_vendor_spending_excluded_from_committee_total(self):
+        fec_routes = {
+            "/committee/C0PAC001/": {"json": {"results": [_PAC]}},
+            "/schedules/schedule_b/": {"json": {"results": [
+                _sched_b_to_candidate_cmte(amount=1000.0),
+                _sched_b_vendor_payment(amount=400.0),
+            ]}},
+        }
+        fec, cong = _make_fec_and_congress(fec_routes)
+        r = await detect_industry_concentration(fec, cong, committee_id="C0PAC001")
+        assert r.stats["total_disbursed"] == 1400.0
+        assert r.stats["to_other_committees"] == 1000.0
+
+    @pytest.mark.asyncio
+    async def test_unseated_candidate_is_unattributed(self):
+        """A candidate ID with no sitting legislator must not be attributed."""
+        fec_routes = {
+            "/committee/C0PAC001/": {"json": {"results": [_PAC]}},
+            "/schedules/schedule_b/": {"json": {"results": [
+                _sched_b_to_candidate_cmte(cand_ids=("H9NOBODY",), name="LOST RACE CMTE", amount=2000.0),
+            ]}},
+        }
+        fec, cong = _make_fec_and_congress(fec_routes)
+        r = await detect_industry_concentration(fec, cong, committee_id="C0PAC001")
+        assert r.stats["attributed_to_sitting_members"] == 0.0
+        assert r.stats["unattributed_amount"] == 2000.0
+
+    @pytest.mark.asyncio
+    async def test_min_amount_filter(self):
+        fec_routes = {
+            "/committee/C0PAC001/": {"json": {"results": [_PAC]}},
+            "/schedules/schedule_b/": {"json": {"results": [
+                _sched_b_to_candidate_cmte(amount=100.0),
+                _sched_b_to_candidate_cmte(amount=9000.0),
+            ]}},
+        }
+        fec, cong = _make_fec_and_congress(fec_routes)
+        r = await detect_industry_concentration(fec, cong, committee_id="C0PAC001", min_amount=1000.0)
+        assert r.stats["total_disbursed"] == 9000.0
+
+    @pytest.mark.asyncio
+    async def test_requires_committee_id_or_name(self):
+        fec, cong = _make_fec_and_congress({})
+        r = await detect_industry_concentration(fec, cong)
+        assert r.status == "ERROR"
+
+    @pytest.mark.asyncio
+    async def test_always_warns_about_intermediaries_and_current_rosters(self):
+        fec_routes = {
+            "/committee/C0PAC001/": {"json": {"results": [_PAC]}},
+            "/schedules/schedule_b/": {"json": {"results": []}},
+        }
+        fec, cong = _make_fec_and_congress(fec_routes)
+        r = await detect_industry_concentration(fec, cong, committee_id="C0PAC001")
+        assert any("current-only" in w for w in r.warnings)
+        assert any("intermediary" in w for w in r.warnings)

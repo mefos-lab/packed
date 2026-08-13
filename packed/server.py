@@ -603,6 +603,32 @@ async def list_tools() -> list[Tool]:
                 "required": ["registrant_name"],
             },
         ),
+        Tool(
+            name="pattern_industry_concentration",
+            description=(
+                "Aggregate a PAC's outbound giving by the congressional "
+                "committees its recipients sit on — whether a donor's "
+                "money concentrates on the members with jurisdiction "
+                "over it. Follows identifiers end to end (FEC recipient "
+                "committee -> candidate ID -> legislator -> seats), no "
+                "name matching. Money sent to committees with no "
+                "candidate of their own (leadership PACs, party "
+                "committees) is reported as unattributed rather than "
+                "followed; trace those with the leadership-PAC and "
+                "joint-fundraising patterns."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "committee_id": {"type": "string", "description": "FEC committee ID of the giving PAC (optional if committee_name given)"},
+                    "committee_name": {"type": "string", "description": "PAC name to resolve to a committee ID (optional if committee_id given)"},
+                    "two_year_transaction_period": {"type": "integer", "description": "Election cycle, e.g. 2026 (optional)"},
+                    "include_subcommittees": {"type": "boolean", "description": "Include subcommittee seats as well as full committees (optional, default false)"},
+                    "min_amount": {"type": "number", "description": "Ignore disbursements below this amount (optional)"},
+                },
+                "required": [],
+            },
+        ),
     ]
 
 
@@ -634,6 +660,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     if name == "pattern_leadership_pac_transfers" and fec_client is None:
         return _not_configured("OpenFEC", "OPENFEC_API_KEY")
     if name == "pattern_jfc_obscuring" and fec_client is None:
+        return _not_configured("OpenFEC", "OPENFEC_API_KEY")
+    if name == "pattern_industry_concentration" and fec_client is None:
         return _not_configured("OpenFEC", "OPENFEC_API_KEY")
     if name == "pattern_lobbying_money_to_committee_seats" and lda_client is None:
         return _not_configured("LDA", "LDA_API_KEY")
@@ -930,6 +958,17 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 registrant_name=arguments["registrant_name"],
                 filing_year=arguments.get("filing_year"),
                 include_subcommittees=arguments.get("include_subcommittees", False),
+            )
+            result = asdict(match)
+
+        elif name == "pattern_industry_concentration":
+            match = await patterns_module.detect_industry_concentration(
+                fec_client, congress_client,
+                committee_id=arguments.get("committee_id"),
+                committee_name=arguments.get("committee_name"),
+                two_year_transaction_period=arguments.get("two_year_transaction_period"),
+                include_subcommittees=arguments.get("include_subcommittees", False),
+                min_amount=arguments.get("min_amount", 0.0),
             )
             result = asdict(match)
 
