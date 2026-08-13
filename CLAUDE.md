@@ -107,6 +107,36 @@ source, look up its documented rate limit and add an entry. LDA's
 120/min limit is confirmed from its live OpenAPI schema; OpenFEC and
 ProPublica NPE entries are conservative estimates pending confirmation.
 
+## Skill
+
+`/follow` (`.claude/skills/follow/SKILL.md`) is the orchestration layer.
+
+It exists because no single pattern answers the question a user asks. A
+PAC's direct giving is only part of its exposure — much of the money
+goes to intermediary committees (party committees, victory funds,
+leadership PACs) that pass it on. On a real corporate PAC, direct
+attribution to sitting members covered a minority of committee-directed
+money. Running one pattern gives a confidently incomplete answer;
+composing them and reconciling is the job the skill automates.
+
+Its routing keys on the FEC `designation` code, which is verified
+against live data: `D` -> leadership PAC pattern, `J` -> joint
+fundraising pattern, party committees -> reported as not attributable
+(the committee allocates later by a process this data does not capture).
+
+**This is deliberately not an N-deep money graph, unlike sift's
+traversal.** Ownership is transitive, so sift can walk a chain and have
+each hop still mean something. Money is not: an intermediary committee
+commingles a donor's funds with everyone else's, so no portion of what
+it later disburses is traceable to any particular donor. Amounts
+therefore stop at the first hop; routes may extend further, reported as
+connectivity with no figure attached. Any future traversal work here
+must preserve that distinction — a graph that propagates dollar amounts
+through commingled accounts would produce confident fiction.
+
+When adding a pattern, add it to the skill's Step 2 as well, or it will
+not be reached by the workflow anyone actually runs.
+
 ## Detection Patterns
 
 No generic condition/rule engine like Sift's `pattern_matcher.py` —
