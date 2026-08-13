@@ -14,7 +14,9 @@ Packed cross-references PAC/committee contributions, federal lobbying registrati
 
 ## Status
 
-All three planned data sources are integrated and verified against their live APIs: OpenFEC (candidates, committees, itemized contributions and disbursements), LDA (registrants, clients, filings, lobbyist contributions), and ProPublica Nonprofit Explorer (501(c)(4) dark-money filings). Three detection patterns are built and live-verified: corroborating LD-203 lobbyist contributions against FEC's independently-filed records, tracing a leadership PAC's money flow, and tracing a joint fundraising committee's money flow (who funds it — including donors giving far more than any single committee's limit — and which committees it splits proceeds to). See `TODO.md` for what's next and what's currently blocked on missing data.
+Four data sources are integrated and verified live: OpenFEC (candidates, committees, itemized contributions and disbursements, independent and coordinated expenditures, financial totals), LDA (registrants, lobbyists, clients, filings, lobbyist contributions), ProPublica Nonprofit Explorer (501(c)(4) dark-money filings), and congress-legislators (committee membership plus the FEC-ID cross-reference that links a member of Congress to their campaign finance record).
+
+Three detection patterns are built and live-verified: corroborating LD-203 lobbyist contributions against FEC's independently-filed records, tracing a leadership PAC's money flow, and tracing a joint fundraising committee's money flow (who funds it — including donors giving far more than any single committee's limit — and which committees it splits proceeds to). Two more (dual role, industry concentration) are unblocked and next up. See `TODO.md`.
 
 ## Quick start
 
@@ -57,6 +59,7 @@ LDA_API_KEY=<your-key>       # Required for lda_* tools — free account at lda.
 | OpenFEC | Committees, candidates, itemized contributions/disbursements/independent expenditures/coordinated party expenditures, financial totals, candidate-committee linkage | Free API key |
 | LDA (Lobbying Disclosure Act) | Registrants, lobbyists, clients, filings (LD-1/LD-2), lobbyist political contributions (LD-203) | Free account + key |
 | ProPublica Nonprofit Explorer | 501(c)(4) Form 990 filings (dark money) | None |
+| congress-legislators | Congressional committee/subcommittee membership, legislator IDs (incl. FEC candidate IDs) | None |
 
 ## Error Handling
 

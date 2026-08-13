@@ -45,6 +45,9 @@ SERVICE_RATE_LIMITS: dict[str, float] = {
     "OpenFEC":  4.00,   # ~900/hour  (1,000/hour default tier — headroom, unconfirmed)
     "LDA":      0.60,   # ~100/min   (120/min documented — headroom)
     "ProPublica NPE": 0.50,   # 2 req/s (undocumented — conservative)
+    # Static YAML files on raw.githubusercontent.com, not a query API, and
+    # cached in-process after first fetch — so this throttle rarely engages.
+    "congress-legislators": 1.00,   # 1 req/s (polite; no documented limit)
 }
 
 

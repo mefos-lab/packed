@@ -167,8 +167,25 @@ candidate → committee chairmanship, fully linkable.
 Caveat: committee membership is **current-only** (no historical snapshots), so patterns
 built on it describe the present, not a point-in-time past. Note that in any output.
 
-- [ ] Add a `congress_legislators_client.py` (fetch + parse YAML; consider caching since
-  these are static files, not a live API)
+- [x] **Add `congress_legislators_client.py`** ✓ built and live-verified 2026-08-12. Fetches
+  and parses the three YAML files, caching each in-process after first fetch (they're static
+  documents, not a query API — `refresh()` drops the cache). 5 MCP tools:
+  `congress_find_legislator_by_fec_id` (the join), `congress_search_legislators`,
+  `congress_get_legislator_committees`, `congress_get_committee_members` (roster with FEC
+  IDs attached), `congress_search_committees`.
+  - Live-verified the full join chain end to end: FEC ID `S0AR00150` → John Boozman
+    (`B001236`) → 20 committee/subcommittee seats including **Chairman of Senate
+    Agriculture** and Chairman of an Appropriations subcommittee. Reverse direction too:
+    the Senate Agriculture roster returns 23 members, **all 23 resolving to FEC IDs**.
+  - Implementation details worth knowing: subcommittee membership keys are parent
+    `thomas_id` + the subcommittee's 2-digit `thomas_id` (SSAF + 13 = `SSAF13`) — the client
+    flattens both into one index and resolves parent names. Added `pyyaml` as a real
+    dependency (it was missing from pyproject.toml entirely). Added a
+    `congress-legislators` entry to `SERVICE_RATE_LIMITS`, though caching means it rarely
+    engages.
+  - Edge cases handled and covered by tests: 2 of 537 legislators have no FEC ID at all,
+    and 64 have multiple (up to 3, e.g. someone who ran for House then Senate) — so the
+    FEC index is many-IDs-to-one-legislator.
 - [ ] Build dual role pattern
 - [ ] Build industry concentration pattern
 

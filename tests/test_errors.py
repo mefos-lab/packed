@@ -260,7 +260,7 @@ class TestServiceRateLimiter:
 
 class TestRateLimitsRegistry:
     def test_all_known_services_have_limits(self):
-        expected = {"OpenFEC", "LDA", "ProPublica NPE"}
+        expected = {"OpenFEC", "LDA", "ProPublica NPE", "congress-legislators"}
         assert set(SERVICE_RATE_LIMITS.keys()) == expected
 
     def test_limits_are_positive(self):
