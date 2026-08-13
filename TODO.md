@@ -241,6 +241,31 @@ time rather than silently.
 
 - [ ] Migrate to the mcp 2.0 API and lift the pin. Latest 1.x is 1.29.0, so
       there's runway, but the pin shouldn't be permanent.
+
+  **API research (done 2026-08-13, against a real mcp 2.0.0 install — not docs).**
+  The two versions are structurally different, not renamed:
+
+  | | mcp 1.x (what we use) | mcp 2.0 |
+  |---|---|---|
+  | Registration | `@server.list_tools()` returning `list[Tool]` with hand-written JSON Schema | tool-manager based; `@server.tool()` decorator or `add_tool(fn, name=, description=)`, **schema derived from the function signature** |
+  | Dispatch | single `@server.call_tool()` if/elif dispatcher | per-tool callables, via `MCPServer.call_tool` -> `self._tool_manager.call_tool(...)` |
+  | Transport | `async with stdio_server() as (r, w): await server.run(r, w, ...)` | `await server.run_stdio_async()` |
+  | Class | `mcp.server.Server` | `mcp.server.MCPServer` (also exported as `Server`) |
+
+  `MCPServer.__init__` does accept `tools: list[Tool] | None` (the `mcp_types.Tool`
+  wire type, so explicit inputSchema is expressible) — worth confirming whether that
+  path can register a handler alongside an explicit schema, since it would preserve
+  the hand-authored schemas and make this a far smaller change than rewriting all 32
+  tools as typed functions.
+
+  **Why this needs its own session, not a tail-end sprint:** all 32 tools carry
+  hand-authored schemas with enums (`office`: H/S/P, `support_oppose_indicator`:
+  S/O), per-field descriptions, and required/optional distinctions. Signature-derived
+  schemas would need `Annotated`/`Field` to preserve that fidelity. The failure mode
+  is silent — a subtly degraded schema means the model calls the tool slightly wrong,
+  and no test in this repo would catch it (the server smoke tests assert a schema
+  exists, not that it's faithful). Budget real time and diff the generated schemas
+  against the current hand-written ones before shipping.
 - [ ] Consider whether Sift has the same exposure — it uses the same
       `@server.list_tools()` decorator pattern and may have the same unpinned
       dependency.
