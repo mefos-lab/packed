@@ -15,11 +15,11 @@ from (`~/src/mefos-lab/PACKED_PLAN.md` in the private planning repo).
 Four data sources wired up and verified live (2026-08-12): OpenFEC
 (`packed/openfec_client.py`), LDA (`packed/lda_client.py`), ProPublica
 Nonprofit Explorer (`packed/propublica_client.py`), and
-congress-legislators (`packed/congress_legislators_client.py`). Three
+congress-legislators (`packed/congress_legislators_client.py`). Four
 detection patterns built and live-verified in `packed/patterns.py`
 (lobbyist contribution corroboration, leadership PAC transfers, JFC
 obscuring — the latter two share a `_trace_committee_money_flow()`
-helper).
+helper — and lobbying money by recipient committee seat).
 
 congress-legislators is the odd one out architecturally: it's static
 YAML files fetched whole from raw GitHub, not a query API, so the
@@ -117,6 +117,21 @@ pattern in `packed/patterns.py` is a bespoke async function that
 queries the relevant clients directly and applies domain-specific
 matching logic. Revisit the generic-engine question once several
 patterns exist and their shared structure is actually clear.
+
+**The MCP server is pinned to `mcp<2`.** mcp 2.0 removed the
+`@server.list_tools()` / `@server.call_tool()` decorator API this
+server is built on. With the previous unpinned `mcp>=1.0.0`, pip
+installed 2.0.0 and `packed/server.py` silently stopped importing —
+undetected because no test imported it. `tests/test_server.py` now
+imports the server and asserts tools register, so this fails loudly.
+Migrating to the 2.0 API is tracked in TODO.md phase 9.
+
+**Don't wrap cache-backed client methods in `api_call()`.** It charges
+the per-service rate limit, which is correct for HTTP but wrong for
+in-memory reads. Pattern 4 originally did this against the
+congress-legislators client (which serves from cache after first
+fetch) and took 5+ minutes; priming the cache once through `api_call()`
+and then querying directly brought it to 6.4 seconds.
 
 When adding a pattern: verify matching logic against live data before
 trusting it. Pattern 1 (`lobbyist_contribution_corroboration`) shipped

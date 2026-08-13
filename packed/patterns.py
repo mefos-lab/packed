@@ -71,6 +71,56 @@ money-out tracing as pattern 2. Revisit if FEC's memo field semantics
 get properly confirmed — that would let this pattern show the actual
 per-participant split of a single bundled contribution, not just
 aggregate flow.
+
+Pattern 4: lobbying_money_to_committee_seats. Aggregates a lobbying
+registrant's LD-203 political giving by the congressional committees
+its recipients sit on, joining LDA money data to congress-legislators
+committee rosters.
+
+**This is deliberately NOT the "dual role" pattern the roadmap
+originally specified**, and the reason is a hard data limit rather
+than a shortcut. Dual role was defined as "a lobbyist for client X who
+also funds a member sitting on a committee X lobbies before" — which
+requires knowing which committee a client lobbies. LDA does not record
+that. Its `government_entities` field was confirmed live (2026-08-12)
+to have 257 possible values, of which **zero are congressional
+committees**; the only congressional entries are the chamber-level
+"HOUSE OF REPRESENTATIVES" and "SENATE", which virtually every filing
+names, making a chamber-level version vacuous.
+
+Two alternatives were evaluated and rejected:
+- The `covered_position` field (a lobbyist's prior government job)
+  would give a genuine revolving-door signal, but it is only ~8%
+  populated and is inconsistent free text ("Sr. Leg. Asst. & Leg.
+  Dir., Rep. Stefanik (2/23-1/25)", "CoS, Sen Leahy, 2005-11").
+  Extracting member identities from it reliably isn't feasible without
+  guesswork of the same kind declined for pattern 3's memo codes.
+- Mapping LDA general issue codes (TAX, HCR, ENG) to committees of
+  jurisdiction would be an editorial construction of ours, not source
+  data, so a "match" would reflect our mapping rather than a disclosed
+  fact.
+
+What IS fully supported is the recipient side: LD-203's `honoree_name`
+field carries clean legislator names ("Sen. Marsha Blackburn"), and
+those resolve to committee seats via congress-legislators. So this
+pattern answers "whose committee seats does this firm's money land on"
+without asserting anything about what the firm lobbies before.
+
+Measured against 141 real LD-203 honoree entries for one firm: 113
+(80%) resolved to exactly one sitting legislator, 0 ambiguous. The
+remaining 28 are legitimately unresolvable and fall into clear
+buckets — party committees and PACs (DCCC, NRSC, the firm's own PAC),
+members who have since left office, non-incumbent candidates, a typo
+in the source data ("Sen. Adam Schii"), and non-prefix nicknames
+("Elizabeth Fletcher" for Lizzie Fletcher). Resolution stats are
+returned in the output so a caller can see the denominator rather than
+trusting a total blindly.
+
+Two interpretive caveats are surfaced as warnings on every result:
+committee rosters are current-only (so an older filing_year is being
+matched against today's committees), and a single contribution is
+counted once per committee its recipient sits on — meaning committee
+totals intentionally sum to more than the contribution total.
 """
 
 from __future__ import annotations
@@ -81,6 +131,7 @@ from typing import Any
 
 from .lda_client import LDAClient
 from .openfec_client import OpenFECClient
+from .congress_legislators_client import CongressLegislatorsClient
 from .errors import ServiceTracker, api_call
 
 AMOUNT_TOLERANCE = 1.00  # dollars
@@ -516,4 +567,177 @@ async def detect_jfc_obscuring(
         committee_name=committee_name,
         two_year_transaction_period=two_year_transaction_period,
         min_transfer_amount=min_transfer_amount,
+    )
+
+
+async def _prime_congress_cache(client: CongressLegislatorsClient) -> bool:
+    """Fetch the congress-legislators files once so subsequent lookups
+    are pure in-memory reads."""
+    await client.get_legislators()
+    await client.get_committee_membership()
+    await client.get_committees()
+    return True
+
+
+async def detect_lobbying_money_to_committee_seats(
+    lda_client: LDAClient,
+    congress_client: CongressLegislatorsClient,
+    registrant_name: str,
+    filing_year: int | None = None,
+    include_subcommittees: bool = False,
+) -> PatternMatch:
+    """Aggregate a lobbying registrant's LD-203 political giving by the
+    congressional committees its recipients sit on.
+
+    See the module docstring (Pattern 4) for why this is scoped the way
+    it is rather than as the originally-planned "dual role" pattern.
+    """
+    tracker = ServiceTracker()
+
+    filings = await api_call(
+        tracker, "LDA", "/contributions/",
+        lambda: lda_client.search_contributions(
+            registrant_name=registrant_name,
+            filing_year=filing_year,
+            page_size=25,
+        ),
+    )
+    if filings is None:
+        return PatternMatch(
+            pattern_name="lobbying_money_to_committee_seats",
+            title="Lobbying Money by Recipient Committee Seat",
+            risk_level="INFO",
+            status="ERROR",
+            description="Could not fetch LD-203 data.",
+            findings=[],
+            warnings=tracker.warnings,
+        )
+
+    # Collect (honoree, amount) from every contribution item.
+    items: list[tuple[str, float]] = []
+    for filing in filings.get("results", []):
+        for item in filing.get("contribution_items", []) or []:
+            honoree = item.get("honoree_name")
+            if not honoree:
+                continue
+            try:
+                amount = float(item.get("amount") or 0)
+            except (TypeError, ValueError):
+                continue
+            items.append((honoree, amount))
+
+    # Resolve each distinct honoree once, then fan the money out across
+    # every committee seat that legislator holds.
+    resolution: dict[str, dict[str, Any] | None] = {}
+    unresolved: dict[str, float] = {}
+    committee_totals: dict[str, dict[str, Any]] = {}
+    resolved_amount = 0.0
+
+    # Prime the congress-legislators cache through the rate-limited path
+    # once, up front. Every lookup below is then served from memory, so
+    # they must NOT go through api_call() — doing that would charge the
+    # per-service rate limit for in-process dict reads and turn a
+    # sub-second pattern into a multi-minute one (measured: it did).
+    primed = await api_call(
+        tracker, "congress-legislators", "(prime file cache)",
+        lambda: _prime_congress_cache(congress_client),
+    )
+    if primed is None:
+        return PatternMatch(
+            pattern_name="lobbying_money_to_committee_seats",
+            title="Lobbying Money by Recipient Committee Seat",
+            risk_level="INFO",
+            status="ERROR",
+            description="Could not fetch congress-legislators data.",
+            findings=[],
+            warnings=tracker.warnings,
+        )
+
+    seat_cache: dict[str, list[dict[str, Any]]] = {}
+
+    for honoree, amount in items:
+        if honoree not in resolution:
+            matches = await congress_client.search_legislators_by_name(honoree)
+            # Only accept an unambiguous match — see module docstring.
+            resolution[honoree] = matches[0] if len(matches) == 1 else None
+
+        legislator = resolution[honoree]
+        if legislator is None:
+            unresolved[honoree] = unresolved.get(honoree, 0.0) + amount
+            continue
+
+        resolved_amount += amount
+        bioguide = legislator.get("id", {}).get("bioguide")
+        if bioguide not in seat_cache:
+            seat_cache[bioguide] = await congress_client.get_committees_for_legislator(bioguide)
+        seats = seat_cache[bioguide]
+
+        for seat in seats:
+            if seat.get("is_subcommittee") and not include_subcommittees:
+                continue
+            cid = seat["committee_id"]
+            entry = committee_totals.setdefault(cid, {
+                "committee_id": cid,
+                "committee_name": seat.get("name"),
+                "chamber": seat.get("type"),
+                "is_subcommittee": seat.get("is_subcommittee", False),
+                "total_amount": 0.0,
+                "recipient_count": 0,
+                "recipients": [],
+                "chairs_or_ranking_members": [],
+            })
+            entry["total_amount"] += amount
+            name = legislator.get("name", {}).get("official_full") or honoree
+            if name not in entry["recipients"]:
+                entry["recipients"].append(name)
+                entry["recipient_count"] += 1
+            title = seat.get("title")
+            if title and name not in entry["chairs_or_ranking_members"]:
+                entry["chairs_or_ranking_members"].append(f"{name} ({title})")
+
+    findings = sorted(
+        committee_totals.values(), key=lambda c: c["total_amount"], reverse=True,
+    )
+
+    total_amount = sum(a for _, a in items)
+    return PatternMatch(
+        pattern_name="lobbying_money_to_committee_seats",
+        title="Lobbying Money by Recipient Committee Seat",
+        risk_level="INFO",
+        status="ACTIVE",
+        description=(
+            "Aggregates a lobbying registrant's LD-203 political "
+            "contributions by the congressional committees its "
+            "recipients sit on. Giving to a committee's members is not "
+            "improper — but concentration relative to a firm's lobbying "
+            "portfolio is the thing worth looking at. Note that the same "
+            "dollar is counted once per committee the recipient sits on, "
+            "so committee totals intentionally sum to more than the "
+            "contribution total."
+        ),
+        findings=findings,
+        stats={
+            "registrant_name": registrant_name,
+            "filing_year": filing_year,
+            "contribution_items": len(items),
+            "total_amount": round(total_amount, 2),
+            "resolved_amount": round(resolved_amount, 2),
+            "unresolved_amount": round(total_amount - resolved_amount, 2),
+            "distinct_honorees": len(resolution),
+            "resolved_honorees": sum(1 for v in resolution.values() if v),
+            "unresolved_honorees": sorted(unresolved),
+            "distinct_committees": len(findings),
+        },
+        warnings=(
+            [
+                "Committee assignments are current-only; contributions from an "
+                "earlier filing_year are matched against today's committee "
+                "rosters, and recipients who have since left office will not "
+                "resolve at all.",
+                "Honorees that are party committees or PACs (DCCC, NRSC, a "
+                "firm's own PAC) are legitimately unresolvable — they are not "
+                "individual legislators.",
+            ]
+            + tracker.warnings
+        ),
     )

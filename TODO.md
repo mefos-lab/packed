@@ -186,8 +186,23 @@ built on it describe the present, not a point-in-time past. Note that in any out
   - Edge cases handled and covered by tests: 2 of 537 legislators have no FEC ID at all,
     and 64 have multiple (up to 3, e.g. someone who ran for House then Senate) — so the
     FEC index is many-IDs-to-one-legislator.
-- [ ] Build dual role pattern
-- [ ] Build industry concentration pattern
+- [x] **Pattern 4: lobbying_money_to_committee_seats** ✓ built and live-verified 2026-08-12.
+  **Deliberately not "dual role" as originally specified** — that required knowing which
+  committee a client lobbies before, and LDA does not record it: its `government_entities`
+  field has 257 possible values and **zero are congressional committees** (only chamber-level
+  "HOUSE OF REPRESENTATIVES"/"SENATE", which nearly every filing names, making a
+  chamber-level version vacuous). Two alternatives were evaluated and rejected: the
+  `covered_position` revolving-door field is only ~8% populated and is inconsistent free text
+  ("CoS, Sen Leahy, 2005-11"); mapping issue codes to committees of jurisdiction would be our
+  editorial construction rather than disclosed fact. What IS supported is the recipient side —
+  LD-203 `honoree_name` carries clean legislator names that resolve to committee seats.
+  Live result for Akin Gump 2025: $189,325 across 141 items, concentrating on Senate
+  Judiciary, House Ways & Means (incl. its Ranking Member), and Senate Commerce (incl.
+  Chairman Ted Cruz).
+- [ ] Build industry concentration pattern — same shape as pattern 4 (aggregate a funder's
+  giving by recipient committee seats), but sourced from FEC PAC contributions rather than
+  LD-203. Worth checking whether it should share a helper with pattern 4 the way patterns
+  2/3 do.
 
 ### congress.gov API (roll-call votes) — unblocks timing correlation
 Official Library of Congress API at api.congress.gov. Requires a free API key (confirmed
@@ -209,3 +224,33 @@ implying full congressional coverage.
   parent organization wound down its open-data work.
 - congress.gov also exposes committee data, overlapping congress-legislators. Prefer
   congress-legislators for membership (no key, simpler), congress.gov for votes.
+
+## 9. Known issues / follow-ups (found 2026-08-12)
+
+### mcp 2.0 API migration — server was silently broken
+`packed/server.py` stopped importing entirely when pip resolved the unpinned
+`mcp>=1.0.0` dependency to **mcp 2.0.0**, which removed the
+`@server.list_tools()` / `@server.call_tool()` decorator API the server is built
+on (and removed `mcp.server.fastmcp`). Nothing caught it: every test imported
+clients and patterns directly and none imported the server, so the full suite
+passed green while the actual product could not start.
+
+Fixed for now by pinning `mcp>=1.0.0,<2` and adding `tests/test_server.py`,
+which imports the server and asserts tools register — so this fails loudly next
+time rather than silently.
+
+- [ ] Migrate to the mcp 2.0 API and lift the pin. Latest 1.x is 1.29.0, so
+      there's runway, but the pin shouldn't be permanent.
+- [ ] Consider whether Sift has the same exposure — it uses the same
+      `@server.list_tools()` decorator pattern and may have the same unpinned
+      dependency.
+
+### Rate limiter was applied to in-memory cache reads
+Pattern 4 initially routed every congress-legislators lookup through
+`api_call()`, which charges the per-service rate limit. Since that client serves
+everything from an in-process cache after the first fetch, this billed a
+1-second wait for what were dict reads — the pattern took **5+ minutes**.
+Restructured to prime the cache once through the rate-limited path, then do
+lookups directly: **6.4 seconds**. Worth remembering when wiring future
+cache-backed clients — `api_call()` belongs around actual HTTP, not around
+methods that usually hit cache.

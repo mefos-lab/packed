@@ -563,6 +563,29 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+        Tool(
+            name="pattern_lobbying_money_to_committee_seats",
+            description=(
+                "Aggregate a lobbying registrant's LD-203 political "
+                "giving by the congressional committees its recipients "
+                "sit on. Answers 'whose committee seats does this firm's "
+                "money land on'. Note: LDA does not record which "
+                "committee a client lobbies before (only chamber), so "
+                "this deliberately does not claim a lobbying-target "
+                "match — see the module docstring. Committee totals sum "
+                "to more than the contribution total because a "
+                "recipient sits on multiple committees."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "registrant_name": {"type": "string", "description": "Lobbying firm/registrant name, e.g. 'Akin Gump'"},
+                    "filing_year": {"type": "integer", "description": "LD-203 filing year, e.g. 2025 (optional)"},
+                    "include_subcommittees": {"type": "boolean", "description": "Include subcommittee seats as well as full committees (optional, default false)"},
+                },
+                "required": ["registrant_name"],
+            },
+        ),
     ]
 
 
@@ -596,6 +619,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return _not_configured("OpenFEC", "OPENFEC_API_KEY")
     if name == "pattern_jfc_obscuring" and fec_client is None:
         return _not_configured("OpenFEC", "OPENFEC_API_KEY")
+    if name == "pattern_lobbying_money_to_committee_seats" and lda_client is None:
+        return _not_configured("LDA", "LDA_API_KEY")
 
     tracker = ServiceTracker()
 
@@ -880,6 +905,15 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 committee_name=arguments.get("committee_name"),
                 two_year_transaction_period=arguments.get("two_year_transaction_period"),
                 min_transfer_amount=arguments.get("min_transfer_amount", 0.0),
+            )
+            result = asdict(match)
+
+        elif name == "pattern_lobbying_money_to_committee_seats":
+            match = await patterns_module.detect_lobbying_money_to_committee_seats(
+                lda_client, congress_client,
+                registrant_name=arguments["registrant_name"],
+                filing_year=arguments.get("filing_year"),
+                include_subcommittees=arguments.get("include_subcommittees", False),
             )
             result = asdict(match)
 

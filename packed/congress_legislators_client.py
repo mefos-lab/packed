@@ -36,12 +36,69 @@ Known data caveats, all confirmed against the live files:
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from typing import Any
 
 import httpx
 import yaml
 
 from packed import __version__
+
+# Honorifics and titles that appear in front of names in other sources
+# (LD-203 honoree names look like "Sen. Marsha Blackburn" / "The
+# Honorable French Hill"), plus bare initials, which carry no matching
+# signal and would otherwise cause false negatives.
+_NAME_TITLES = {
+    "the", "honorable", "hon", "sen", "senator", "rep", "representative",
+    "cong", "congressman", "congresswoman", "dr", "mr", "mrs", "ms", "jr",
+    "sr", "ii", "iii", "iv",
+}
+
+
+def _name_tokens(name: str | None) -> set[str]:
+    """Lowercase, accent-stripped name tokens, minus titles and initials.
+
+    Diacritics are stripped because other sources routinely write these
+    names unaccented — LD-203 honoree fields say "Ben Ray Lujan" and
+    "Linda Sanchez" where the official records say "Luján" and
+    "Sánchez".
+    """
+    if not name:
+        return set()
+    folded = unicodedata.normalize("NFKD", name.lower())
+    folded = "".join(c for c in folded if not unicodedata.combining(c))
+    raw = re.split(r"[^a-z]+", folded)
+    return {t for t in raw if len(t) > 1 and t not in _NAME_TITLES}
+
+
+_PREFIX_MIN = 3
+
+
+def _token_matches(query_token: str, leg_tokens: set[str]) -> bool:
+    """A query token matches exactly, or as a prefix of a legislator
+    token (min 3 chars).
+
+    Prefix matching exists to handle shortened first names, which are
+    common in how other sources write legislator names: "Chris Coons"
+    vs. the official "Christopher A. Coons", "Dan Meuser" vs. "Daniel
+    Meuser". Since *every* query token must match, requiring the last
+    name too, this stays tight in practice — measured against 141 real
+    LD-203 honoree names it produced zero ambiguous (>1 match) results.
+
+    It does not handle nicknames that aren't prefixes — "Elizabeth
+    Fletcher" will not match "Lizzie Fletcher". That needs a nickname
+    dictionary and is a known, accepted gap.
+    """
+    if query_token in leg_tokens:
+        return True
+    if len(query_token) < _PREFIX_MIN:
+        return False
+    return any(
+        t.startswith(query_token)
+        for t in leg_tokens
+        if len(t) > len(query_token)
+    )
 
 BASE_URL = "https://raw.githubusercontent.com/unitedstates/congress-legislators/main"
 
@@ -121,20 +178,26 @@ class CongressLegislatorsClient:
         return None
 
     async def search_legislators_by_name(self, name: str) -> list[dict[str, Any]]:
-        """Case-insensitive substring match against legislator names."""
-        needle = name.lower().strip()
-        if not needle:
+        """Match legislators by name tokens.
+
+        Token-subset rather than substring: every token in the query
+        must match some token of the legislator's name. This is what
+        makes "Max Miller" match "Max L. Miller" — a plain substring
+        check fails on the middle initial, which is common enough in
+        this data to matter (it silently lost ~half of real matches
+        when this was substring-based).
+        """
+        query_tokens = _name_tokens(name)
+        if not query_tokens:
             return []
         results = []
         for leg in await self.get_legislators():
             n = leg.get("name", {})
-            haystack = " ".join(
-                str(v) for v in (
-                    n.get("first"), n.get("middle"), n.get("last"),
-                    n.get("official_full"), n.get("nickname"),
-                ) if v
-            ).lower()
-            if needle in haystack:
+            leg_tokens = set()
+            for v in (n.get("first"), n.get("middle"), n.get("last"),
+                      n.get("official_full"), n.get("nickname")):
+                leg_tokens |= _name_tokens(v)
+            if all(_token_matches(q, leg_tokens) for q in query_tokens):
                 results.append(leg)
         return results
 

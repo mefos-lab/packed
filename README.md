@@ -16,7 +16,7 @@ Packed cross-references PAC/committee contributions, federal lobbying registrati
 
 Four data sources are integrated and verified live: OpenFEC (candidates, committees, itemized contributions and disbursements, independent and coordinated expenditures, financial totals), LDA (registrants, lobbyists, clients, filings, lobbyist contributions), ProPublica Nonprofit Explorer (501(c)(4) dark-money filings), and congress-legislators (committee membership plus the FEC-ID cross-reference that links a member of Congress to their campaign finance record).
 
-Three detection patterns are built and live-verified: corroborating LD-203 lobbyist contributions against FEC's independently-filed records, tracing a leadership PAC's money flow, and tracing a joint fundraising committee's money flow (who funds it — including donors giving far more than any single committee's limit — and which committees it splits proceeds to). Two more (dual role, industry concentration) are unblocked and next up. See `TODO.md`.
+Four detection patterns are built and live-verified: corroborating LD-203 lobbyist contributions against FEC's independently-filed records, tracing a leadership PAC's money flow, and tracing a joint fundraising committee's money flow (who funds it — including donors giving far more than any single committee's limit — and which committees it splits proceeds to), and aggregating a lobbying firm's political giving by the congressional committees its recipients sit on. See `TODO.md`.
 
 ## Quick start
 
