@@ -52,6 +52,25 @@ OPENFEC_API_KEY=<your-key>   # Required for fec_* tools — free at api.data.gov
 LDA_API_KEY=<your-key>       # Required for lda_* tools — free account at lda.gov/api/register/
 ```
 
+## Usage
+
+The `/follow` skill is the entry point — it resolves an entity, runs the
+relevant detection patterns, follows money routed through intermediary
+committees, and reconciles the results into one picture.
+
+```
+/follow <name>                  — auto-detect and trace
+/follow <name> --as pac         — treat as a PAC / political committee
+/follow <name> --as firm        — treat as a lobbying registrant
+/follow <name> --as member      — treat as a member of Congress
+/follow <name> --deep           — follow intermediaries one hop further
+```
+
+Running a single pattern directly answers only part of the question:
+much of a PAC's money reaches members through party committees, victory
+funds and leadership PACs rather than directly. The skill exists to
+compose those routes and report what share was actually traced.
+
 ## Data sources
 
 | Source | Coverage | Auth |

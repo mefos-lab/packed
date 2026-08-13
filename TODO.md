@@ -288,3 +288,104 @@ Restructured to prime the cache once through the rate-limited path, then do
 lookups directly: **6.4 seconds**. Worth remembering when wiring future
 cache-backed clients — `api_call()` belongs around actual HTTP, not around
 methods that usually hit cache.
+
+## 10. Ground the detection patterns in the literature (not started)
+
+sift's patterns cite institutional provenance — FATF typologies, FATF-Egmont on
+beneficial ownership concealment, Moody's shell indicators, Wolfsberg, EU AMLD,
+Transparency International. Each pattern file carries `sources:` and
+`references:`, so a finding can be traced to an established typology rather than
+resting on our own judgement.
+
+packed's patterns carry none. They were derived from the project plan and from
+what the data supports — defensible, but ungrounded. There is a substantial
+literature for this domain that would serve the same role.
+
+### One finding that bears directly on the current design
+
+Hall & Wayman, "Buying Time: Moneyed Interests and the Mobilization of Bias in
+Congressional Committees", *American Political Science Review* 84(3):797-820.
+The empirical result: contribution effects appear **in committee rather than on
+the floor**, and what shifts is legislators' *participation and effort*, not
+their votes — contributions "mobilize legislative support and demobilize
+opposition."
+
+Two consequences:
+
+- It **validates the committee-seat framing** of patterns 4 and 5. Aggregating
+  money by the committees recipients sit on targets exactly where the literature
+  locates the effect. That is worth citing in those patterns rather than leaving
+  the choice to look arbitrary.
+- It **argues against the timing-correlation pattern** on empirical grounds, not
+  just interpretive caution. Roll-call votes are where the evidence for
+  contribution influence is weakest, so a contributions-versus-votes pattern
+  would be built on the least-supported link in the field. Reconsider whether to
+  build it at all before spending a congress.gov key on it.
+
+Kalla & Broockman's randomized field experiment on contributions and access to
+congressional officials (*American Journal of Political Science*, 2016) points
+the same way: access and attention, not vote-buying.
+
+### Institutional sources — the FATF analogues
+
+- **OECD Recommendation on Principles for Transparency and Integrity in
+  Lobbying** (2010, revised 2024) — the first international standard on
+  lobbying; closest structural analogue to the FATF Recommendations.
+- **OECD, *Lobbying in the 21st Century: Transparency, Integrity and Access***
+  (2021), and the *Anti-Corruption and Integrity Outlook* series — typologies of
+  influence-seeking and circumvention.
+- **International IDEA** — political finance handbook and comparative database;
+  *Mapping and Analysing Lobbying Registers* (2024), useful for what disclosure
+  regimes systematically fail to capture.
+- **Transparency International** — *Towards Standards for Integrity in Political
+  Finance* (2025), proposing transparency, clean money, level playing field,
+  gender equality, state neutrality and accountability as principles; plus their
+  political corruption topic guide.
+- **FEC enforcement matters (MURs)** — documented real schemes, the nearest
+  equivalent to FATF's case typologies. Worth mining for circumvention patterns
+  that actually got prosecuted rather than theorised.
+
+### Suggested approach — a registry, not a fixed bibliography
+
+The list above is a starting set, not the model. New works will keep appearing —
+a revised OECD recommendation, a new empirical study, a fresh enforcement
+matter — and adding one must be cheap and additive, never a rewrite. Design for
+that from the start:
+
+- [ ] **A source registry with stable keys.** `patterns/SOURCES.yaml`, one entry
+      per work: key, full citation, URL, publisher, kind (international standard
+      / empirical study / enforcement case / investigative methodology), and the
+      year of the edition consulted. Patterns cite keys, never inline citations,
+      so a source can be revised in one place. sift keeps its list in a comment
+      header, which does not survive growth — improve on it here.
+- [ ] **Many-to-many, and additive.** A pattern cites several sources; a source
+      supports several patterns. Adding a work means appending a registry entry
+      and, where relevant, a key to existing patterns — never editing what is
+      already there.
+- [ ] **Record what a source does to a pattern, not just that it exists.** Each
+      citation carries a stance: `supports`, `limits`, or `contradicts`. This is
+      the part most bibliographies get wrong, and it matters here — Hall &
+      Wayman *supports* the committee-seat framing of patterns 4 and 5 while
+      *contradicting* a votes-based timing pattern. One work, opposite
+      implications. A flat "sources" list cannot express that and would let a
+      citation be read as blanket endorsement.
+- [ ] **Let new evidence move a pattern's status.** Adopt sift's
+      PROPOSED/CONFIRMED/ESTABLISHED lifecycle, but make status a function of
+      what currently cites it. A pattern should be able to strengthen when
+      corroborating work lands — and be demoted or retired when a source
+      undercuts it. Record the demotion rather than deleting the pattern.
+- [ ] **Keep a "considered and rejected" section in the registry.** A work
+      evaluated and found unsuitable is worth recording so it is not
+      re-evaluated later. Soundex in `MEFOS_META_PLAN.md` is the precedent.
+
+Then the actual work:
+
+- [ ] Retrofit the five existing patterns with provenance where the literature
+      supports them, and mark honestly where it does not. An uncited pattern
+      should be visibly uncited, not silently assumed grounded.
+- [ ] Mine the registry for patterns not yet thought of — the point of the
+      exercise is the ones we would not invent unaided.
+- [ ] Note the asymmetry throughout: FATF describes conduct that is *illegal*,
+      whereas most of what packed detects is *lawful*. Patterns must describe
+      structure and concentration, not imply wrongdoing. The literature supports
+      "this is where influence operates", not "this is a violation."
