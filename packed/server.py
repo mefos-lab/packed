@@ -13,6 +13,7 @@ from mcp.types import Tool, TextContent
 from .openfec_client import OpenFECClient
 from .lda_client import LDAClient
 from .propublica_client import ProPublicaNPEClient
+from .congress_legislators_client import CongressLegislatorsClient
 from .errors import ServiceTracker, api_call
 from . import patterns as patterns_module
 
@@ -41,6 +42,7 @@ lda_client = LDAClient(api_key=_lda_key) if _lda_key else None
 
 # No auth required
 propublica_client = ProPublicaNPEClient()
+congress_client = CongressLegislatorsClient()
 
 
 def _not_configured(source: str, env_var: str) -> list[TextContent]:
@@ -418,6 +420,81 @@ async def list_tools() -> list[Tool]:
         ),
 
         # =====================================================================
+        # congress-legislators tools (committee assignments, legislator IDs)
+        # =====================================================================
+        Tool(
+            name="congress_find_legislator_by_fec_id",
+            description=(
+                "Resolve an FEC candidate ID to a sitting member of "
+                "Congress. This is the join between FEC money data and "
+                "committee assignments — use it to go from a candidate "
+                "committee to the member's committee seats. Returns null "
+                "if no current member holds that FEC ID."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "fec_id": {"type": "string", "description": "FEC candidate ID, e.g. S0AR00150"},
+                },
+                "required": ["fec_id"],
+            },
+        ),
+        Tool(
+            name="congress_search_legislators",
+            description="Search sitting members of Congress by name. Returns their bioguide ID, FEC candidate IDs, and other cross-reference identifiers.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Full or partial legislator name"},
+                },
+                "required": ["name"],
+            },
+        ),
+        Tool(
+            name="congress_get_legislator_committees",
+            description=(
+                "Get all committees and subcommittees a member of "
+                "Congress sits on, including their rank and any "
+                "leadership title (Chairman / Ranking Member). "
+                "Note: current assignments only — no historical data."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "bioguide": {"type": "string", "description": "Bioguide ID (from congress_search_legislators or congress_find_legislator_by_fec_id)"},
+                },
+                "required": ["bioguide"],
+            },
+        ),
+        Tool(
+            name="congress_get_committee_members",
+            description=(
+                "Get the full roster of a congressional committee or "
+                "subcommittee, with each member's FEC candidate IDs "
+                "attached so the roster can be joined directly to FEC "
+                "money data. Note: current membership only."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "committee_id": {"type": "string", "description": "Committee ID, e.g. SSAF (Senate Agriculture) or SSAF13 (a subcommittee)"},
+                },
+                "required": ["committee_id"],
+            },
+        ),
+        Tool(
+            name="congress_search_committees",
+            description="Search congressional committees and subcommittees by name. Returns committee IDs for use with congress_get_committee_members.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Full or partial committee name, e.g. 'agriculture'"},
+                },
+                "required": ["query"],
+            },
+        ),
+
+        # =====================================================================
         # Detection patterns
         # =====================================================================
         Tool(
@@ -730,6 +807,52 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 tracker, "ProPublica NPE", "/organizations/{ein}.json",
                 lambda: propublica_client.get_organization(arguments["ein"]),
             )
+
+        elif name == "congress_find_legislator_by_fec_id":
+            legislator = await api_call(
+                tracker, "congress-legislators", "/legislators-current.yaml",
+                lambda: congress_client.find_legislator_by_fec_id(arguments["fec_id"]),
+            )
+            result = {
+                "fec_id": arguments["fec_id"],
+                "legislator": legislator,
+                "found": legislator is not None,
+            }
+
+        elif name == "congress_search_legislators":
+            legislators = await api_call(
+                tracker, "congress-legislators", "/legislators-current.yaml",
+                lambda: congress_client.search_legislators_by_name(arguments["name"]),
+            )
+            result = {"count": len(legislators or []), "results": legislators or []}
+
+        elif name == "congress_get_legislator_committees":
+            committees = await api_call(
+                tracker, "congress-legislators", "/committee-membership-current.yaml",
+                lambda: congress_client.get_committees_for_legislator(arguments["bioguide"]),
+            )
+            result = {
+                "bioguide": arguments["bioguide"],
+                "count": len(committees or []),
+                "committees": committees or [],
+                "note": "Current committee assignments only — this source has no historical snapshots.",
+            }
+
+        elif name == "congress_get_committee_members":
+            roster = await api_call(
+                tracker, "congress-legislators", "/committee-membership-current.yaml",
+                lambda: congress_client.get_committee_members(arguments["committee_id"]),
+            )
+            result = roster or {}
+            if isinstance(result, dict):
+                result["note"] = "Current membership only — this source has no historical snapshots."
+
+        elif name == "congress_search_committees":
+            committees = await api_call(
+                tracker, "congress-legislators", "/committees-current.yaml",
+                lambda: congress_client.search_committees(arguments["query"]),
+            )
+            result = {"count": len(committees or []), "results": committees or []}
 
         elif name == "pattern_lobbyist_contribution_corroboration":
             match = await patterns_module.detect_lobbyist_contribution_corroboration(

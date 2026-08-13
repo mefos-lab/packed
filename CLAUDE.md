@@ -12,15 +12,22 @@ from (`~/src/mefos-lab/PACKED_PLAN.md` in the private planning repo).
 
 ## Status
 
-All three planned data sources are wired up and verified against
-their live APIs (2026-08-12): OpenFEC (`packed/openfec_client.py`,
-including Schedule B disbursements), LDA (`packed/lda_client.py`), and
-ProPublica Nonprofit Explorer (`packed/propublica_client.py`). Three
+Four data sources wired up and verified live (2026-08-12): OpenFEC
+(`packed/openfec_client.py`), LDA (`packed/lda_client.py`), ProPublica
+Nonprofit Explorer (`packed/propublica_client.py`), and
+congress-legislators (`packed/congress_legislators_client.py`). Three
 detection patterns built and live-verified in `packed/patterns.py`
 (lobbyist contribution corroboration, leadership PAC transfers, JFC
 obscuring — the latter two share a `_trace_committee_money_flow()`
-helper). See `TODO.md` for which further patterns are blocked on data
-this repo doesn't have yet.
+helper).
+
+congress-legislators is the odd one out architecturally: it's static
+YAML files fetched whole from raw GitHub, not a query API, so the
+client caches each file in-process after first fetch. Its value is the
+**FEC candidate ID ↔ bioguide ID join** that links committee
+assignments to FEC money data without fuzzy name matching. That
+unblocked the dual-role and industry-concentration patterns, which are
+next up — see `TODO.md` phase 8.
 
 ## Data Sources
 
@@ -29,6 +36,7 @@ this repo doesn't have yet.
 | OpenFEC | Committees, candidates, itemized contributions (A), disbursements (B), independent expenditures (E), coordinated party expenditures (F), committee/candidate totals, candidate-committee linkage | Free API key via api.data.gov | Verified live |
 | LDA (Lobbying Disclosure Act) | Registrants, lobbyists, clients, filings (LD-1/LD-2), lobbyist political contributions (LD-203) | Free account + key via lda.gov | Verified live |
 | ProPublica Nonprofit Explorer | 501(c)(4) Form 990 filings (dark money) | None | Verified live |
+| congress-legislators | Congressional committee/subcommittee membership, legislator cross-reference IDs (incl. FEC candidate IDs) | None — static YAML files on GitHub | Verified live |
 
 The LD-203 link (lobbyist political contributions) is the reason this
 tool exists — it's the connective tissue between lobbying and campaign
