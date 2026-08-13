@@ -12,6 +12,28 @@ An [MCP server](https://modelcontextprotocol.io/) for **cross-referencing PAC co
 
 Packed cross-references PAC/committee contributions, federal lobbying registrations and activity, and 501(c)(4) dark-money spending — connecting campaign finance to lobbying in a way no single government database does on its own. The key link is the LD-203 filing, where registered lobbyists disclose their own political contributions.
 
+### What it is looking for
+
+Almost everything this tool surfaces is legal. That is the point, not a
+disclaimer.
+
+Legality and abuse are different axes. The most consequential influence
+operations are lawful by construction, because the people who benefit from the
+rules also write them. Contribution limits are circumvented by structures that
+comply with them exactly — a joint fundraising committee that lets one donor
+write a single cheque larger than any participant could accept, a leadership PAC
+that moves money between candidates, a party committee that receives what cannot
+be given directly. None of that is a violation. All of it is disclosed.
+
+So packed does not hunt for crimes. It makes lawful structure legible: who
+funds whom, through which route, and whose committee seats the money lands on.
+Disclosure regimes exist precisely so this can be seen — but the data is spread
+across systems that do not reference each other, in volumes that defeat manual
+reading, which means in practice it usually is not seen. That gap is what this
+closes.
+
+Findings should be read as structure and concentration, never as accusation.
+
 ## Status
 
 Four data sources are integrated and verified live: OpenFEC (candidates, committees, itemized contributions and disbursements, independent and coordinated expenditures, financial totals), LDA (registrants, lobbyists, clients, filings, lobbyist contributions), ProPublica Nonprofit Explorer (501(c)(4) dark-money filings), and congress-legislators (committee membership plus the FEC-ID cross-reference that links a member of Congress to their campaign finance record).
@@ -70,6 +92,83 @@ Running a single pattern directly answers only part of the question:
 much of a PAC's money reaches members through party committees, victory
 funds and leadership PACs rather than directly. The skill exists to
 compose those routes and report what share was actually traced.
+
+## Worked examples
+
+Both are transcripts of real runs against the live APIs, abridged. **The figures
+are a snapshot of what was on file when the run happened, not current state** —
+re-run them rather than citing these numbers.
+
+### A corporate PAC: where the money actually goes
+
+```
+/follow "Microsoft Corporation Stakeholders Voluntary PAC" --as pac --cycle 2026
+```
+
+```
+Entity   MICROSOFT CORPORATION STAKEHOLDERS VOLUNTARY PAC - MSVPAC (C00227546)
+         designation: Lobbyist/Registrant PAC
+
+Money traced
+  Total disbursed                     $241,790
+  To other committees                 $200,000
+  Attributed to sitting members        $64,000
+  Unattributed                        $136,000
+
+Attribution rate — $64,000 of $200,000 (32%)
+
+Committee exposure (29 committees)
+  $12,000   5 members   House Foreign Affairs        <- Gregory W. Meeks (Ranking Member)
+  $11,500   4 members   House Financial Services
+  $10,000   2 members   Senate Armed Services
+  $10,000   5 members   House Energy and Commerce    <- Frank Pallone, Jr. (Ranking Member)
+
+Not traced
+  $15,000   Republican National Committee            party — not attributable
+  $15,000   Democratic National Committee            party — not attributable
+  $10,000   Katherine Clark Victory Fund             designation J — joint fundraising
+   $5,000   Responsibility and Freedom Work PAC      designation D — leadership PAC
+```
+
+The attribution rate is the point of this output. Only about a third of the
+money reached members by a route that can be followed; the rest went to
+committees that redistribute it later by processes this data does not capture.
+A concentration figure quoted without that share attached would overstate what
+is actually known.
+
+Note also what the routes are: giving to both national party committees, and to
+a victory fund and a leadership PAC. Each is a lawful instrument. Together they
+are the ordinary machinery by which money reaches members without a direct,
+attributable contribution.
+
+### A joint fundraising committee: how limits are lawfully exceeded
+
+```
+/follow "Collins Victory Committee" --as pac --cycle 2026
+```
+
+```
+Entity   COLLINS VICTORY COMMITTEE (C00692897)
+         designation: Joint fundraising committee
+
+Largest contributions in
+  $25,000   KENNEDY, JAMES
+  $25,000   KENNEDY, JAMES        (same donor, same day)
+  $10,000   DARWISH, SAM
+
+Split out to 4 participant committees — $709,740 total
+  $509,977   COLLINS FOR SENATOR
+   $83,265   PINE TREE RESULTS PAC
+   $65,907   DIRIGO PAC
+   $50,590   NRSC
+```
+
+This is the mechanism the pattern exists to surface. No individual may give a
+Senate campaign $50,000. A joint fundraising committee may accept it, because
+the sum is treated as separate contributions to each participant, each within
+its own limit. The cheques are lawful, disclosed, and filed correctly — and the
+aggregate relationship between one donor and one senator is invisible unless the
+split is reassembled, which is what this does.
 
 ## Data sources
 

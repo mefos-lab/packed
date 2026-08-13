@@ -385,7 +385,13 @@ Then the actual work:
       should be visibly uncited, not silently assumed grounded.
 - [ ] Mine the registry for patterns not yet thought of — the point of the
       exercise is the ones we would not invent unaided.
-- [ ] Note the asymmetry throughout: FATF describes conduct that is *illegal*,
-      whereas most of what packed detects is *lawful*. Patterns must describe
-      structure and concentration, not imply wrongdoing. The literature supports
-      "this is where influence operates", not "this is a violation."
+- [ ] Carry the framing through: legality and abuse are different axes. FATF
+      describes conduct that is *illegal*; nearly everything packed detects is
+      *lawful*, and that is the substance rather than a caveat. The most
+      consequential influence operations are lawful by construction, because
+      those who benefit from the rules also write them — a joint fundraising
+      committee lets one donor exceed any single limit while complying with all
+      of them. Patterns should describe structure and concentration and be
+      readable as such; the literature supports "this is where influence
+      operates", never "this is a violation." See the README's "What it is
+      looking for" section, which states this as the tool's purpose.
