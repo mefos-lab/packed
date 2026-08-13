@@ -408,3 +408,127 @@ class TestDetectJfcObscuring:
         result = await detect_jfc_obscuring(fec, committee_id="C0LEAD01")
         assert len(result.warnings) == 1
         assert "Joint Fundraising Committee" in result.warnings[0]
+
+
+# =============================================================================
+# detect_lobbying_money_to_committee_seats tests
+# =============================================================================
+
+from packed.patterns import detect_lobbying_money_to_committee_seats
+from packed.congress_legislators_client import CongressLegislatorsClient
+from tests.test_congress_legislators import (
+    YamlMockTransport, COMMITTEES_YAML, MEMBERSHIP_YAML, LEGISLATORS_YAML,
+)
+
+
+def _ld203_filing(items):
+    return {
+        "filing_uuid": "33333333-3333-3333-3333-333333333333",
+        "registrant": {"name": "TEST FIRM"},
+        "contribution_items": items,
+    }
+
+
+def _item(honoree, amount="1000.00"):
+    return {"payee_name": "SOME COMMITTEE", "honoree_name": honoree, "amount": amount}
+
+
+def _make_lda_and_congress(lda_routes):
+    lda = LDAClient(api_key="test_key")
+    lda._client = httpx.AsyncClient(
+        base_url="https://lda.gov/api/v1", transport=MockTransport(lda_routes),
+    )
+    cong = CongressLegislatorsClient()
+    cong._client = httpx.AsyncClient(
+        base_url="https://raw.githubusercontent.com/unitedstates/congress-legislators/main",
+        transport=YamlMockTransport({
+            "committee-membership-current.yaml": MEMBERSHIP_YAML,
+            "committees-current.yaml": COMMITTEES_YAML,
+            "legislators-current.yaml": LEGISLATORS_YAML,
+        }),
+    )
+    return lda, cong
+
+
+class TestDetectLobbyingMoneyToCommitteeSeats:
+    @pytest.mark.asyncio
+    async def test_aggregates_by_committee(self):
+        lda_routes = {"/contributions/": {"json": {"results": [
+            _ld203_filing([_item("Test Chairman", "5000.00")]),
+        ]}}}
+        lda, cong = _make_lda_and_congress(lda_routes)
+        r = await detect_lobbying_money_to_committee_seats(lda, cong, registrant_name="test firm")
+        assert r.status == "ACTIVE"
+        ssaf = next(f for f in r.findings if f["committee_id"] == "SSAF")
+        assert ssaf["total_amount"] == 5000.0
+        assert "Test Chairman (Chairman)" in ssaf["chairs_or_ranking_members"]
+
+    @pytest.mark.asyncio
+    async def test_title_prefix_is_stripped_when_resolving(self):
+        """LD-203 honoree names carry titles like 'Sen.' / 'Rep.'."""
+        lda_routes = {"/contributions/": {"json": {"results": [
+            _ld203_filing([_item("Sen. Test Chairman", "2500.00")]),
+        ]}}}
+        lda, cong = _make_lda_and_congress(lda_routes)
+        r = await detect_lobbying_money_to_committee_seats(lda, cong, registrant_name="test firm")
+        assert r.stats["resolved_honorees"] == 1
+
+    @pytest.mark.asyncio
+    async def test_unresolvable_honoree_tracked_not_dropped(self):
+        """Party committees (DCCC etc.) aren't people — must be surfaced."""
+        lda_routes = {"/contributions/": {"json": {"results": [
+            _ld203_filing([_item("DCCC", "10000.00")]),
+        ]}}}
+        lda, cong = _make_lda_and_congress(lda_routes)
+        r = await detect_lobbying_money_to_committee_seats(lda, cong, registrant_name="test firm")
+        assert r.stats["unresolved_amount"] == 10000.0
+        assert "DCCC" in r.stats["unresolved_honorees"]
+        assert r.findings == []
+
+    @pytest.mark.asyncio
+    async def test_subcommittees_excluded_by_default(self):
+        lda_routes = {"/contributions/": {"json": {"results": [
+            _ld203_filing([_item("Test Member", "1000.00")]),
+        ]}}}
+        lda, cong = _make_lda_and_congress(lda_routes)
+        r = await detect_lobbying_money_to_committee_seats(lda, cong, registrant_name="test firm")
+        assert all(not f["is_subcommittee"] for f in r.findings)
+
+    @pytest.mark.asyncio
+    async def test_subcommittees_included_when_requested(self):
+        lda_routes = {"/contributions/": {"json": {"results": [
+            _ld203_filing([_item("Test Member", "1000.00")]),
+        ]}}}
+        lda, cong = _make_lda_and_congress(lda_routes)
+        r = await detect_lobbying_money_to_committee_seats(
+            lda, cong, registrant_name="test firm", include_subcommittees=True,
+        )
+        assert any(f["is_subcommittee"] for f in r.findings)
+
+    @pytest.mark.asyncio
+    async def test_one_dollar_counted_per_committee_seat(self):
+        """A recipient on N committees credits the amount to each — the
+        documented reason committee totals exceed the contribution total."""
+        lda_routes = {"/contributions/": {"json": {"results": [
+            _ld203_filing([_item("Test Member", "1000.00")]),
+        ]}}}
+        lda, cong = _make_lda_and_congress(lda_routes)
+        r = await detect_lobbying_money_to_committee_seats(
+            lda, cong, registrant_name="test firm", include_subcommittees=True,
+        )
+        assert r.stats["total_amount"] == 1000.0
+        assert sum(f["total_amount"] for f in r.findings) == 2000.0  # SSAF + SSAF13
+
+    @pytest.mark.asyncio
+    async def test_always_warns_about_current_only_rosters(self):
+        lda_routes = {"/contributions/": {"json": {"results": []}}}
+        lda, cong = _make_lda_and_congress(lda_routes)
+        r = await detect_lobbying_money_to_committee_seats(lda, cong, registrant_name="test firm")
+        assert any("current-only" in w for w in r.warnings)
+
+    @pytest.mark.asyncio
+    async def test_lda_failure_returns_error(self):
+        lda_routes = {"/contributions/": {"status": 500, "json": {"detail": "err"}}}
+        lda, cong = _make_lda_and_congress(lda_routes)
+        r = await detect_lobbying_money_to_committee_seats(lda, cong, registrant_name="test firm")
+        assert r.status == "ERROR"

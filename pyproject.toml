@@ -10,7 +10,15 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
 dependencies = [
-    "mcp>=1.0.0",
+    # Pinned below 2.0: mcp 2.0 removed the @server.list_tools() /
+    # @server.call_tool() decorator API this server is built on (and
+    # removed mcp.server.fastmcp). With an unpinned ">=1.0.0" spec, pip
+    # installed 2.0.0 and packed/server.py silently stopped importing —
+    # undetected because no test imported it. Migrating to the 2.0 API
+    # is tracked in TODO.md; until then this pin is what keeps the
+    # server runnable. See tests/test_server.py, which now fails loudly
+    # if the server stops loading.
+    "mcp>=1.0.0,<2",
     "httpx>=0.27.0",
     "pyyaml>=6.0",
 ]
