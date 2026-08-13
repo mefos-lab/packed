@@ -121,6 +121,34 @@ committee rosters are current-only (so an older filing_year is being
 matched against today's committees), and a single contribution is
 counted once per committee its recipient sits on — meaning committee
 totals intentionally sum to more than the contribution total.
+
+Pattern 5: industry_concentration. Aggregates a PAC's outbound giving
+by the congressional committees its recipients sit on — the question
+being whether a donor's money concentrates on the members who write
+the rules governing that donor.
+
+Shares its aggregation with pattern 4 via ``_CommitteeSeatTally``; the
+two differ only in how a recipient is resolved. That difference matters
+for how much to trust each: pattern 4 matches LD-203 honoree names
+against legislator names, which is fuzzy and loses a tail. This one
+follows identifiers end to end — FEC Schedule B gives a
+``recipient_committee_id``, the recipient committee carries
+``candidate_ids``, and those FEC candidate IDs join to
+congress-legislators' own ``fec`` field, which reaches a bioguide ID and
+its committee seats. No name matching anywhere in that chain.
+
+What it cannot see, and reports rather than hides: money sent to a
+committee that has no candidate of its own — a leadership PAC, a party
+committee, a joint fundraising committee — reaches a member through a
+further hop this pattern does not follow. Those amounts are surfaced as
+``unattributed_recipients`` instead of being silently dropped or wrongly
+attributed. Patterns 2 and 3 exist to trace exactly those hops, so the
+three compose: run this to see direct exposure, then follow the
+intermediaries separately.
+
+Ordinary vendor and operating spending is excluded by the same test
+pattern 2 uses — a Schedule B row with no ``recipient_committee_id`` is
+not a transfer to a committee.
 """
 
 from __future__ import annotations
@@ -570,6 +598,56 @@ async def detect_jfc_obscuring(
     )
 
 
+class _CommitteeSeatTally:
+    """Accumulates money by the congressional committees its recipients sit on.
+
+    Shared by the patterns that answer "whose committee seats does this
+    funder's money land on". They differ only in how a recipient is
+    resolved — one matches LD-203 honoree names, the other follows FEC
+    committee -> candidate IDs — but the aggregation is identical, so it
+    lives here rather than being written twice.
+
+    A single contribution is credited once per committee the recipient
+    sits on. Committee totals therefore sum to more than the money in,
+    which is intended: the question is exposure per committee, not a
+    partition of the dollars.
+    """
+
+    def __init__(self, include_subcommittees: bool = False):
+        self._include_subcommittees = include_subcommittees
+        self._totals: dict[str, dict[str, Any]] = {}
+
+    def add(self, seats: list[dict[str, Any]], display_name: str, amount: float) -> None:
+        for seat in seats:
+            if seat.get("is_subcommittee") and not self._include_subcommittees:
+                continue
+            cid = seat["committee_id"]
+            entry = self._totals.setdefault(cid, {
+                "committee_id": cid,
+                "committee_name": seat.get("name"),
+                "chamber": seat.get("type"),
+                "is_subcommittee": seat.get("is_subcommittee", False),
+                "total_amount": 0.0,
+                "recipient_count": 0,
+                "recipients": [],
+                "chairs_or_ranking_members": [],
+            })
+            entry["total_amount"] += amount
+            if display_name not in entry["recipients"]:
+                entry["recipients"].append(display_name)
+                entry["recipient_count"] += 1
+            title = seat.get("title")
+            if title:
+                labelled = f"{display_name} ({title})"
+                if labelled not in entry["chairs_or_ranking_members"]:
+                    entry["chairs_or_ranking_members"].append(labelled)
+
+    def findings(self) -> list[dict[str, Any]]:
+        return sorted(
+            self._totals.values(), key=lambda c: c["total_amount"], reverse=True,
+        )
+
+
 async def _prime_congress_cache(client: CongressLegislatorsClient) -> bool:
     """Fetch the congress-legislators files once so subsequent lookups
     are pure in-memory reads."""
@@ -630,7 +708,7 @@ async def detect_lobbying_money_to_committee_seats(
     # every committee seat that legislator holds.
     resolution: dict[str, dict[str, Any] | None] = {}
     unresolved: dict[str, float] = {}
-    committee_totals: dict[str, dict[str, Any]] = {}
+    tally = _CommitteeSeatTally(include_subcommittees)
     resolved_amount = 0.0
 
     # Prime the congress-legislators cache through the rate-limited path
@@ -672,32 +750,10 @@ async def detect_lobbying_money_to_committee_seats(
             seat_cache[bioguide] = await congress_client.get_committees_for_legislator(bioguide)
         seats = seat_cache[bioguide]
 
-        for seat in seats:
-            if seat.get("is_subcommittee") and not include_subcommittees:
-                continue
-            cid = seat["committee_id"]
-            entry = committee_totals.setdefault(cid, {
-                "committee_id": cid,
-                "committee_name": seat.get("name"),
-                "chamber": seat.get("type"),
-                "is_subcommittee": seat.get("is_subcommittee", False),
-                "total_amount": 0.0,
-                "recipient_count": 0,
-                "recipients": [],
-                "chairs_or_ranking_members": [],
-            })
-            entry["total_amount"] += amount
-            name = legislator.get("name", {}).get("official_full") or honoree
-            if name not in entry["recipients"]:
-                entry["recipients"].append(name)
-                entry["recipient_count"] += 1
-            title = seat.get("title")
-            if title and name not in entry["chairs_or_ranking_members"]:
-                entry["chairs_or_ranking_members"].append(f"{name} ({title})")
+        name = legislator.get("name", {}).get("official_full") or honoree
+        tally.add(seats, name, amount)
 
-    findings = sorted(
-        committee_totals.values(), key=lambda c: c["total_amount"], reverse=True,
-    )
+    findings = tally.findings()
 
     total_amount = sum(a for _, a in items)
     return PatternMatch(
@@ -740,4 +796,174 @@ async def detect_lobbying_money_to_committee_seats(
             ]
             + tracker.warnings
         ),
+    )
+
+
+async def detect_industry_concentration(
+    fec_client: OpenFECClient,
+    congress_client: CongressLegislatorsClient,
+    committee_id: str | None = None,
+    committee_name: str | None = None,
+    two_year_transaction_period: int | None = None,
+    include_subcommittees: bool = False,
+    min_amount: float = 0.0,
+) -> PatternMatch:
+    """Aggregate a PAC's outbound giving by the congressional committees
+    its recipients sit on.
+
+    See the module docstring (Pattern 5) for how this differs from
+    pattern 4 and what it can and cannot see.
+    """
+    tracker = ServiceTracker()
+
+    if committee_id is None:
+        if not committee_name:
+            return PatternMatch(
+                pattern_name="industry_concentration",
+                title="PAC Giving by Recipient Committee Seat",
+                risk_level="INFO", status="ERROR",
+                description="committee_id or committee_name is required.",
+                findings=[],
+            )
+        found = await api_call(
+            tracker, "OpenFEC", "/committees/",
+            lambda: fec_client.search_committees(q=committee_name),
+        )
+        results = (found or {}).get("results", [])
+        if not results:
+            return PatternMatch(
+                pattern_name="industry_concentration",
+                title="PAC Giving by Recipient Committee Seat",
+                risk_level="INFO", status="ERROR",
+                description=f"No committee found matching {committee_name!r}.",
+                findings=[], warnings=tracker.warnings,
+            )
+        committee_id = results[0]["committee_id"]
+
+    detail = await api_call(
+        tracker, "OpenFEC", "/committee/{id}/",
+        lambda: fec_client.get_committee(committee_id),
+    )
+    record = ((detail or {}).get("results") or [{}])[0]
+
+    disbursements = await api_call(
+        tracker, "OpenFEC", "/schedules/schedule_b/",
+        lambda: fec_client.search_disbursements(
+            committee_id=committee_id,
+            two_year_transaction_period=two_year_transaction_period,
+            per_page=FEC_LOOKUP_PAGE_SIZE,
+        ),
+    )
+    if disbursements is None:
+        return PatternMatch(
+            pattern_name="industry_concentration",
+            title="PAC Giving by Recipient Committee Seat",
+            risk_level="INFO", status="ERROR",
+            description="Could not fetch FEC disbursement data.",
+            findings=[], warnings=tracker.warnings,
+        )
+
+    primed = await api_call(
+        tracker, "congress-legislators", "(prime file cache)",
+        lambda: _prime_congress_cache(congress_client),
+    )
+    if primed is None:
+        return PatternMatch(
+            pattern_name="industry_concentration",
+            title="PAC Giving by Recipient Committee Seat",
+            risk_level="INFO", status="ERROR",
+            description="Could not fetch congress-legislators data.",
+            findings=[], warnings=tracker.warnings,
+        )
+
+    tally = _CommitteeSeatTally(include_subcommittees)
+    seat_cache: dict[str, list[dict[str, Any]]] = {}
+    legislator_cache: dict[str, dict[str, Any] | None] = {}
+
+    total_out = 0.0
+    attributed = 0.0
+    to_committees = 0.0
+    unattributed: dict[str, float] = {}
+
+    for row in disbursements.get("results", []):
+        amount = row.get("disbursement_amount") or 0
+        if amount < min_amount:
+            continue
+        total_out += amount
+
+        recipient_committee_id = row.get("recipient_committee_id")
+        if not recipient_committee_id:
+            continue  # vendor/operating spending, not a transfer to a committee
+        to_committees += amount
+
+        recipient = row.get("recipient_committee") or {}
+        recipient_name = recipient.get("name") or row.get("recipient_name") or recipient_committee_id
+        candidate_ids = recipient.get("candidate_ids") or []
+        if not candidate_ids:
+            # A committee with no candidate of its own — a leadership PAC,
+            # party committee or another intermediary. Money can still reach a
+            # member through it, but not by a link this pattern can follow.
+            unattributed[recipient_name] = unattributed.get(recipient_name, 0.0) + amount
+            continue
+
+        matched_any = False
+        for fec_candidate_id in candidate_ids:
+            if fec_candidate_id not in legislator_cache:
+                legislator_cache[fec_candidate_id] = (
+                    await congress_client.find_legislator_by_fec_id(fec_candidate_id)
+                )
+            legislator = legislator_cache[fec_candidate_id]
+            if legislator is None:
+                continue  # not a sitting member: lost, retired, or never seated
+            matched_any = True
+            bioguide = legislator.get("id", {}).get("bioguide")
+            if bioguide not in seat_cache:
+                seat_cache[bioguide] = await congress_client.get_committees_for_legislator(bioguide)
+            display = legislator.get("name", {}).get("official_full") or recipient_name
+            tally.add(seat_cache[bioguide], display, amount)
+
+        if matched_any:
+            attributed += amount
+        else:
+            unattributed[recipient_name] = unattributed.get(recipient_name, 0.0) + amount
+
+    findings = tally.findings()
+    return PatternMatch(
+        pattern_name="industry_concentration",
+        title="PAC Giving by Recipient Committee Seat",
+        risk_level="INFO",
+        status="ACTIVE",
+        description=(
+            "Aggregates a PAC's outbound giving by the congressional "
+            "committees its recipients sit on. Giving to members with "
+            "jurisdiction over a donor's industry is lawful and routine — "
+            "the signal is concentration, and whether it lands on the "
+            "committees that write the rules governing that donor."
+        ),
+        findings=findings,
+        stats={
+            "committee_id": committee_id,
+            "committee_name": record.get("name"),
+            "committee_type": record.get("committee_type_full"),
+            "designation": record.get("designation_full"),
+            "total_disbursed": round(total_out, 2),
+            "to_other_committees": round(to_committees, 2),
+            "attributed_to_sitting_members": round(attributed, 2),
+            "unattributed_amount": round(to_committees - attributed, 2),
+            "unattributed_recipients": sorted(
+                ({"recipient": k, "amount": round(v, 2)} for k, v in unattributed.items()),
+                key=lambda r: r["amount"], reverse=True,
+            )[:10],
+            "distinct_committees": len(findings),
+        },
+        warnings=[
+            "Committee assignments are current-only; giving from an earlier "
+            "cycle is matched against today's rosters, and recipients no longer "
+            "in office will not resolve.",
+            "Money routed through an intermediary committee (a leadership PAC, "
+            "a party committee, a joint fundraising committee) is reported as "
+            "unattributed rather than followed — the recipient has no candidate "
+            "of its own to resolve. Trace those separately with the leadership "
+            "PAC and joint-fundraising patterns.",
+        ] + tracker.warnings,
     )

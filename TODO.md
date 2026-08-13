@@ -199,10 +199,20 @@ built on it describe the present, not a point-in-time past. Note that in any out
   Live result for Akin Gump 2025: $189,325 across 141 items, concentrating on Senate
   Judiciary, House Ways & Means (incl. its Ranking Member), and Senate Commerce (incl.
   Chairman Ted Cruz).
-- [ ] Build industry concentration pattern — same shape as pattern 4 (aggregate a funder's
-  giving by recipient committee seats), but sourced from FEC PAC contributions rather than
-  LD-203. Worth checking whether it should share a helper with pattern 4 the way patterns
-  2/3 do.
+- [x] **Pattern 5: industry_concentration** — aggregates a PAC's outbound giving by the
+  congressional committees its recipients sit on. Shares `_CommitteeSeatTally` with
+  pattern 4 (extracted when the second consumer appeared, same trigger as patterns 2/3).
+
+  Unlike pattern 4 the join is **identifier-based end to end** — Schedule B
+  `recipient_committee_id` -> the recipient's `candidate_ids` -> congress-legislators'
+  `fec` field -> bioguide -> seats. No name matching, so no fuzzy-match tail to lose.
+
+  **Coverage limit it reports rather than hides:** money sent to a committee with no
+  candidate of its own (leadership PAC, party committee, joint fundraising committee)
+  reaches a member through a hop this pattern does not follow. Those amounts surface as
+  `unattributed_recipients`. On a real corporate PAC this was the majority of
+  committee-directed money, so the headline understates exposure unless patterns 2 and 3
+  are run alongside — which is a strong argument for the orchestration skill below.
 
 ### congress.gov API (roll-call votes) — unblocks timing correlation
 Official Library of Congress API at api.congress.gov. Requires a free API key (confirmed
