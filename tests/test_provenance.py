@@ -66,6 +66,38 @@ class TestStatusConsistency:
         against = {c.source_key for c in timing.citations if c.stance == "contradicts"}
         assert supports & against, "expected one work on both sides"
 
+    def test_a_work_can_take_both_stances_on_one_pattern(self):
+        """Enforcement files show a scheme is real and prosecuted while
+        showing the obvious test for it looks the wrong way. Both
+        readings come from one source, so the registry has to let a
+        single work cite a single pattern twice at opposing stances."""
+        prov = next(x for x in p.proposed_patterns()
+                    if x.pattern_name == "foreign_national_contributions")
+        by_stance = {}
+        for c in prov.citations:
+            by_stance.setdefault(c.stance, set()).add(c.source_key)
+        assert by_stance.get("supports", set()) & by_stance.get("contradicts", set()), \
+            "expected one source on both sides of the same pattern"
+        assert prov.status == "CONTESTED"
+
+
+class TestEnforcementSource:
+    """MURs are the case-typology source, the analogue of FATF's
+    typologies that ground sift. They ground claims differently from a
+    study: the question is not what a scheme correlates with but whether
+    a regulator has actually pursued it."""
+
+    def test_registry_carries_an_enforcement_source(self):
+        kinds = {s.get("kind") for s in p.sources().values()}
+        assert "enforcement" in kinds, f"no enforcement source; kinds are {kinds}"
+
+    def test_enforcement_sources_say_how_to_reach_the_records(self):
+        """A typology source is only usable if the case files can be
+        pulled — otherwise it is an assertion about cases, not a source."""
+        for key, s in p.sources().items():
+            if s.get("kind") == "enforcement":
+                assert s.get("access", "").strip(), f"{key} has no access note"
+
 
 class TestPatternMatchIntegration:
     def test_result_carries_provenance(self):

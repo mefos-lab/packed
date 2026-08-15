@@ -192,8 +192,10 @@ built on it describe the present, not a point-in-time past. Note that in any out
   field has 257 possible values and **zero are congressional committees** (only chamber-level
   "HOUSE OF REPRESENTATIVES"/"SENATE", which nearly every filing names, making a
   chamber-level version vacuous). Two alternatives were evaluated and rejected: the
-  `covered_position` revolving-door field is only ~8% populated and is inconsistent free text
-  ("CoS, Sen Leahy, 2005-11"); mapping issue codes to committees of jurisdiction would be our
+  `covered_position` revolving-door field named a committee too rarely and is inconsistent
+  free text ("CoS, Sen Leahy, 2005-11") — **but see the correction under Pattern candidates
+  below; the "~8% populated" figure recorded here was a mislabel and the member route was
+  never evaluated**; mapping issue codes to committees of jurisdiction would be our
   editorial construction rather than disclosed fact. What IS supported is the recipient side —
   LD-203 `honoree_name` carries clean legislator names that resolve to committee seats.
   Live result for Akin Gump 2025: $189,325 across 141 items, concentrating on Senate
@@ -373,12 +375,77 @@ What shipped:
 
 Remaining work on this:
 
-- [ ] Mine the registry sources for patterns not yet thought of. The entries so
-      far were found by asking what grounds the patterns that already exist,
-      which is the easier direction and not the valuable one.
-- [ ] FEC enforcement matters (MURs) are listed as a source worth adding but
-      not yet in the registry — the nearest equivalent to FATF's case
-      typologies, describing schemes that were actually prosecuted.
+- [x] **FEC enforcement matters (MURs) added** (2026-08-15) as `fec_murs`,
+      `kind: enforcement`. Queryable at `/v1/legal/search/?type=murs` on OpenFEC
+      with the key packed already holds — no new credential. Each record carries
+      the FEC's own `subjects` classification, `dispositions[].citations`
+      (statute), and penalties, which makes it the case-typology source the
+      registry was missing.
+
+      Tallied over 600 unique MURs to get the real distribution rather than an
+      impression. Top subjects: Reporting (339), Contributions-Prohibited (155),
+      Contributions-Excessive (106), Contributions-Corporations (97), Soft Money
+      (72), Personal use (51), In the name of another (49), Foreign Nationals
+      (41), Expenditures-Coordinated (28), Fraudulent misrepresentation (11).
+
+- [x] **Sources mined for patterns not yet thought of** (2026-08-15). Six
+      candidates recorded in `PATTERNS.yaml` under `proposed:`, each assessed
+      against what packed's data can actually support rather than what would be
+      nice. In rough order of value:
+
+  1. **`revolving_door`** — SUPPORTED, and the significant one. OECD names the
+     revolving door as a principal integrity risk; LDA's `covered_position`
+     discloses it. **This revives dual_role, which was closed as unbuildable.**
+     Measured over 3,980 lobbyist-activity rows spread across the 2024 corpus:
+     the field is populated for **30.8% of unique lobbyists**, of whose values
+     67% name a member, 25% name a committee, 13% both.
+
+     The earlier "~8% populated" figure was a mislabel — 8% is 30.8% × 25%, the
+     *committee*-naming share, which is what a committee-level pattern needed.
+     The **member** route (~21% of all lobbyists) was never evaluated, and it is
+     the wide one: a named member resolves to committee seats through the
+     congress-legislators index patterns 4 and 5 already build. Corrected in
+     `packed/patterns.py` and above.
+
+  2. **`conduit_contribution_cluster`** — SUPPORTED. Same-employer,
+     same-amount, same-window contributors: the reimbursement-scheme shape.
+     Schedule A alone. Grounded in a standing enforcement category (49 MURs,
+     359 citations of 52 USC 30122) and a conciliated case with the exact shape
+     (MUR 8363, Calspan, $25,000, 2025). **Lawful bundling looks identical** —
+     this can only ever be a lead, which the entry says plainly.
+
+  3. **`common_vendor_overlap`** — SUPPORTED. An IE committee and the campaign
+     it supports paying the same vendor. Schedule B payee intersection, both
+     sides already retrieved. Coordination is a legal conclusion disclosure
+     cannot reach; the output is the overlap, not the conclusion.
+
+  4. **`scam_pac_ratio`** — SUPPORTED. Raises substantially, disburses little to
+     candidates. Computable from totals packed already pulls. Needs a receipts
+     floor and a full cycle or a young committee trips it.
+
+  5. **`foreign_national_contributions`** — CONTESTED, and instructive. Strong
+     enforcement grounding (41 MURs; 30121(a)(2) is the third most cited statute
+     at 441) but the same source argues against the test: citizens abroad and
+     permanent residents contribute lawfully from foreign addresses, while the
+     prosecuted schemes route through domestic straw donors and LLCs with US
+     addresses. The test inverts — it catches the lawful and misses the
+     prosecuted. Cited twice from one source at opposite stances, which is what
+     the stance field was added for.
+
+  6. **`foreign_principal_lobbying`** — SUPPORTED. LDA `foreign_entities`,
+     confirmed live and populated on 3.0% of a 200-filing 2024 sample, naming
+     parents directly (Huawei behind Futurewei; Kolon Group). Sparse, and the
+     narrower of the two registers — FARA is the other and packed lacks it, so
+     this is as much a recorded data gap as a pattern.
+
+  Deliberately **not** carried forward: Reporting is the largest enforcement
+  category (339) but is overwhelmingly administrative late/non-filing with no
+  investigative signal; Disclaimer (62) and Soft Money (72) need ad-level and
+  state-party data packed does not have.
+
+- [ ] Build the mined candidates, `revolving_door` first — it is the
+      best-grounded, it closes a pattern previously written off, and the
+      member-name parse is the only new machinery it needs.
 - [ ] Retrofit remains partial: `lobbyist_contribution_corroboration` is
       genuinely ungrounded rather than merely unresearched. It rests on the two
       filing regimes being independent, which is a property of the regimes, not

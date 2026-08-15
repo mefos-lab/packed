@@ -118,6 +118,20 @@ work can do opposite things to two patterns. Hall & Wayman is evidence for
 aggregating money by committee seat and evidence against a votes-based timing
 pattern. A flat source list would let either citation read as endorsement.
 
+One work can also take *both* stances on *one* pattern, and this is not a
+contradiction to tidy up. FEC enforcement files show foreign-national
+contributions are real and prosecuted (supports) and that an address test looks
+the wrong way for them, since the prosecuted schemes use domestic straw donors
+(contradicts). Evidence that a scheme exists is not evidence that a given test
+finds it — keep the two claims as separate citations.
+
+**Enforcement sources** (`kind: enforcement`) ground a pattern differently from
+a study: the question is not what a scheme correlates with but whether a
+regulator has pursued it. They carry an `access` field saying how to pull the
+case files, because a typology whose cases cannot be retrieved is an assertion
+about cases rather than a source. FEC MURs are the one here, reachable on the
+OpenFEC key packed already holds.
+
 **Status is derived, not asserted.** A pattern is PROPOSED when uncited,
 SUPPORTED when a work supports it, CONTESTED when one contradicts it. A test
 enforces that status matches the citations, so the two cannot drift.

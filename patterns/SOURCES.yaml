@@ -91,6 +91,37 @@ sources:
       capture. Directly relevant to stating the limits of LDA-derived
       findings.
 
+  fec_murs:
+    citation: >-
+      U.S. Federal Election Commission, closed Matters Under Review
+      (MURs), enforcement case file archive.
+    year: 2026
+    kind: enforcement
+    publisher: Federal Election Commission
+    url: https://www.fec.gov/data/legal/search/murs/
+    verified: true
+    finding: >-
+      Closed enforcement files, each carrying the FEC's own subject
+      classification, the statutes cited in its dispositions, and the
+      penalty. The nearest analogue in this domain to FATF's case
+      typologies: a record of schemes a regulator actually pursued,
+      rather than schemes reasoned about in the abstract.
+    access: >-
+      Queryable at /v1/legal/search/?type=murs on the OpenFEC API with
+      the same key the rest of packed uses. Records expose `subjects`
+      (FEC classification), `dispositions[].citations` (statute), and
+      `documents` (the case PDFs).
+    measured: >-
+      Tallied over 600 unique MURs (2026-08-15). Most frequent subjects:
+      Reporting (339), Contributions-Prohibited (155),
+      Contributions-Excessive (106), Contributions-Corporations (97),
+      Soft Money (72), Personal use (51), Contributions-In the name of
+      another (49), Foreign Nationals (41), Expenditures-Coordinated
+      (28), Fraudulent misrepresentation (11). Most cited statutes:
+      52 USC 30118(a) corporate contributions (555), 30104(b) reporting
+      (523), 30121(a)(2) foreign nationals (441), 30116(f) limits (395),
+      30122 contributions in the name of another (359).
+
   ti_political_finance_standards:
     citation: >-
       Transparency International, "Towards Standards for Integrity in

@@ -130,8 +130,10 @@ proposed:
     note: >-
       A lobbyist for a client who also funds a member sitting on a
       committee that client lobbies before. Not buildable as specified:
-      LDA records the chamber lobbied, never the committee. Retained
-      because the framing is sound even though the data is absent.
+      LDA records the chamber lobbied, never the committee. Superseded
+      in practice by revolving_door, which reaches committees through
+      the lobbyist's disclosed prior employment instead of through the
+      lobbied entity.
     citations:
       - source: idea_lobbying_registers_2024
         stance: limits
@@ -139,3 +141,183 @@ proposed:
           Comparative analysis of register coverage. The missing
           committee-level field is a known regime gap, not an oversight
           in this implementation.
+
+  revolving_door:
+    status: SUPPORTED
+    note: >-
+      Lobbyists who previously staffed the member or committee they now
+      lobby, via LDA's `covered_position`. Buildable, and it reaches the
+      committee level that dual_role could not — through the lobbyist's
+      own prior job rather than through the lobbied entity.
+
+      Measured over 3,980 lobbyist-activity rows spread across the 2024
+      corpus (2026-08-15): `covered_position` is populated for 30.8% of
+      unique lobbyists. Of those strings, 67% name a member ("Deputy
+      Chief of Staff, Rep. Lamar Smith"), 25% name a committee
+      ("Professional Staff, Senate Appropriations Committee"), 13% name
+      both. The member route is the wide one — roughly 21% of all
+      lobbyists — and it lands on congress-legislators, so a named
+      member resolves to committee seats with machinery patterns 4 and
+      5 already use.
+
+      This corrects an earlier assessment recorded during pattern 4 that
+      the field was "~8% populated". That figure appears to have been
+      the committee-naming subset (30.8% x 25% = 7.7%), not the field's
+      population. The member route was never evaluated.
+    citations:
+      - source: oecd_lobbying_21c
+        stance: supports
+        because: >-
+          Names the revolving door between private and public office as
+          a principal integrity risk, and notes few countries impose
+          cooling-off periods on the legislative branch. This pattern
+          targets exactly the movement that concern describes.
+      - source: oecd_lobbying_principles
+        stance: supports
+        because: >-
+          Treats post-employment movement as a transparency and
+          integrity matter the standard expects a regime to address.
+          `covered_position` exists because US law requires this
+          disclosure; reading it is using the regime as intended.
+      - source: idea_lobbying_registers_2024
+        stance: limits
+        because: >-
+          Register coverage is partial by design. Two thirds of
+          lobbyists disclose no covered position, and the field is free
+          text, so absence is not evidence of no prior service and
+          coverage is a floor rather than a census.
+
+  conduit_contribution_cluster:
+    status: SUPPORTED
+    note: >-
+      Contributors sharing an employer who give the same amount to the
+      same recipient on or near the same date — the shape of a
+      reimbursement scheme, in which a corporation funds contributions
+      made in employees' names. Buildable from Schedule A alone
+      (`contributor_employer`, `contribution_receipt_date`,
+      `contribution_receipt_amount`).
+
+      The hard limit is that lawful bundling produces a nearly identical
+      shape: a PAC solicitation drive at one employer also yields
+      same-employer, same-window, similar-amount clusters. This can
+      therefore only ever be a lead, never a finding. That is a reason
+      to report the shape and name the ambiguity, not a reason to skip
+      it.
+    citations:
+      - source: fec_murs
+        stance: supports
+        because: >-
+          "Contributions-In the name of another" is a standing
+          enforcement category (49 of 600 sampled MURs), and 52 USC
+          30122 is among the most cited statutes in dispositions (359
+          citations). MUR 8363 (Calspan Corporation, conciliated 2025,
+          $25,000) is the shape exactly: corporate funds reimbursing
+          named employee conduits.
+      - source: ti_political_finance_standards
+        stance: supports
+        because: >-
+          Clean money is one of the six principles. A contribution whose
+          true source is concealed is the case that principle addresses.
+
+  common_vendor_overlap:
+    status: SUPPORTED
+    note: >-
+      An independent-expenditure committee and the campaign it supports
+      paying the same vendor. Buildable by intersecting Schedule B
+      payees for both committees, which packed already retrieves.
+
+      Coordination is a legal conclusion resting on facts disclosure
+      cannot show, and a shared vendor is lawful where firewalled. The
+      output is an overlap set with amounts and dates.
+    citations:
+      - source: fec_murs
+        stance: supports
+        because: >-
+          "Expenditures-Coordinated" is a recurring enforcement subject
+          (28 of 600 sampled MURs), so the conduct is pursued rather
+          than merely theorised.
+      - source: oecd_lobbying_21c
+        stance: limits
+        because: >-
+          Indirect routes go unrecorded. A shared vendor is one
+          observable trace of a relationship that disclosure does not
+          otherwise capture, so overlap understates coordination and its
+          absence shows nothing.
+
+  scam_pac_ratio:
+    status: SUPPORTED
+    note: >-
+      A committee raising substantially while disbursing little to
+      candidates or committees, the balance going to fundraising
+      vendors and overhead. Computable from totals packed already
+      pulls: receipts against the share of disbursements reaching
+      candidates.
+
+      A new committee, or one in an off-cycle year, legitimately shows a
+      low ratio, so the measure needs a floor on receipts and a full
+      cycle before it means anything.
+    citations:
+      - source: fec_murs
+        stance: supports
+        because: >-
+          "Fraudulent misrepresentation" appears as its own enforcement
+          subject (11 of 600 sampled MURs), distinguishing this from a
+          merely inefficient committee.
+      - source: ti_political_finance_standards
+        stance: supports
+        because: >-
+          Accountability is among the six principles; a committee
+          soliciting on a candidate's behalf while passing on little is
+          the accountability failure it describes.
+
+  foreign_national_contributions:
+    status: CONTESTED
+    note: >-
+      Contributions recorded against a non-US address. Cheap from
+      Schedule A, and 52 USC 30121(a)(2) is the third most cited statute
+      in sampled dispositions (441 citations).
+
+      The enforcement record is strong evidence the *conduct* is real
+      and pursued, and evidence *against* this particular test finding
+      it. Both readings come from the same source, which is why the
+      citations below take opposite stances. Recorded so the citation
+      count does not later look like a mandate to build it.
+    citations:
+      - source: fec_murs
+        stance: supports
+        because: >-
+          Foreign Nationals is a standing subject (41 of 600 sampled
+          MURs) with heavy statutory citation, so the conduct is real
+          and prosecuted rather than theoretical.
+      - source: fec_murs
+        stance: contradicts
+        because: >-
+          The same files undercut an address test as the way to find it.
+          The schemes pursued route through domestic straw donors and
+          LLCs carrying US addresses, while lawful contributions from
+          citizens abroad and permanent residents carry foreign ones —
+          so the test inverts, catching the lawful and missing the
+          prosecuted.
+
+  foreign_principal_lobbying:
+    status: SUPPORTED
+    note: >-
+      LDA filings naming a foreign parent or beneficiary in
+      `foreign_entities`. Confirmed live and populated on 3.0% of a
+      200-filing 2024 sample, naming the parent directly (Huawei behind
+      Futurewei; Kolon Group behind a US firm's engagement).
+
+      Sparse, and it is the narrower of the two foreign-influence
+      registers — FARA is the other and packed does not have it. Worth
+      recording as a data gap as much as a pattern.
+    citations:
+      - source: oecd_lobbying_21c
+        stance: supports
+        because: >-
+          Identifies foreign officials and diplomats as influence actors
+          that lobbying regulation frequently fails to cover.
+      - source: idea_lobbying_registers_2024
+        stance: limits
+        because: >-
+          A 3% disclosure rate is a register-coverage figure, not a
+          measure of foreign involvement in US lobbying.
