@@ -101,6 +101,50 @@ patterns:
           party committees is reported here as unattributed precisely
           because this limit is real.
 
+  revolving_door:
+    status: SUPPORTED
+    note: >-
+      Lobbyists who previously staffed the member or committee they now
+      lobby, via LDA's `covered_position`. Reaches the committee level
+      that dual_role could not, through the lobbyist's own prior job
+      rather than through the lobbied entity.
+
+      Built on the finding that the field is far more usable than an
+      earlier assessment recorded. That assessment called it "~8%
+      populated" and closed dual_role on it; the figure was actually the
+      share of values naming a *committee*, and the field is populated
+      for roughly a third of lobbyists, two thirds of whom name a
+      *member* instead. Members resolve to committee seats through
+      congress-legislators, which is the route that was never evaluated.
+
+      What the pattern can see is bounded by two things it reports
+      rather than hides: most lobbyists disclose no covered position at
+      all, and references to members who have left office do not resolve
+      against a current-only roster — which is the largest category of
+      what it drops.
+    citations:
+      - source: oecd_lobbying_21c
+        stance: supports
+        because: >-
+          Names the revolving door between private and public office as
+          a principal integrity risk, and notes few countries impose
+          cooling-off periods on the legislative branch. This pattern
+          targets exactly the movement that concern describes.
+      - source: oecd_lobbying_principles
+        stance: supports
+        because: >-
+          Treats post-employment movement as a transparency and
+          integrity matter the standard expects a regime to address.
+          `covered_position` exists because US law requires this
+          disclosure; reading it is using the regime as intended.
+      - source: idea_lobbying_registers_2024
+        stance: limits
+        because: >-
+          Register coverage is partial by design. Two thirds of
+          lobbyists disclose no covered position, and the field is free
+          text, so absence is not evidence of no prior service and
+          coverage is a floor rather than a census.
+
 # Planned but not built. Recorded with their grounding so the decision
 # is informed before the work starts.
 proposed:
@@ -130,10 +174,10 @@ proposed:
     note: >-
       A lobbyist for a client who also funds a member sitting on a
       committee that client lobbies before. Not buildable as specified:
-      LDA records the chamber lobbied, never the committee. Superseded
-      in practice by revolving_door, which reaches committees through
-      the lobbyist's disclosed prior employment instead of through the
-      lobbied entity.
+      LDA records the chamber lobbied, never the committee. Closed, and
+      superseded by revolving_door, which is built and reaches
+      committees through the lobbyist's disclosed prior employment
+      instead of through the lobbied entity.
     citations:
       - source: idea_lobbying_registers_2024
         stance: limits
@@ -142,50 +186,6 @@ proposed:
           committee-level field is a known regime gap, not an oversight
           in this implementation.
 
-  revolving_door:
-    status: SUPPORTED
-    note: >-
-      Lobbyists who previously staffed the member or committee they now
-      lobby, via LDA's `covered_position`. Buildable, and it reaches the
-      committee level that dual_role could not — through the lobbyist's
-      own prior job rather than through the lobbied entity.
-
-      Measured over 3,980 lobbyist-activity rows spread across the 2024
-      corpus (2026-08-15): `covered_position` is populated for 30.8% of
-      unique lobbyists. Of those strings, 67% name a member ("Deputy
-      Chief of Staff, Rep. Lamar Smith"), 25% name a committee
-      ("Professional Staff, Senate Appropriations Committee"), 13% name
-      both. The member route is the wide one — roughly 21% of all
-      lobbyists — and it lands on congress-legislators, so a named
-      member resolves to committee seats with machinery patterns 4 and
-      5 already use.
-
-      This corrects an earlier assessment recorded during pattern 4 that
-      the field was "~8% populated". That figure appears to have been
-      the committee-naming subset (30.8% x 25% = 7.7%), not the field's
-      population. The member route was never evaluated.
-    citations:
-      - source: oecd_lobbying_21c
-        stance: supports
-        because: >-
-          Names the revolving door between private and public office as
-          a principal integrity risk, and notes few countries impose
-          cooling-off periods on the legislative branch. This pattern
-          targets exactly the movement that concern describes.
-      - source: oecd_lobbying_principles
-        stance: supports
-        because: >-
-          Treats post-employment movement as a transparency and
-          integrity matter the standard expects a regime to address.
-          `covered_position` exists because US law requires this
-          disclosure; reading it is using the regime as intended.
-      - source: idea_lobbying_registers_2024
-        stance: limits
-        because: >-
-          Register coverage is partial by design. Two thirds of
-          lobbyists disclose no covered position, and the field is free
-          text, so absence is not evidence of no prior service and
-          coverage is a floor rather than a census.
 
   conduit_contribution_cluster:
     status: SUPPORTED

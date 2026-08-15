@@ -668,3 +668,177 @@ class TestDetectIndustryConcentration:
         r = await detect_industry_concentration(fec, cong, committee_id="C0PAC001")
         assert any("current-only" in w for w in r.warnings)
         assert any("intermediary" in w for w in r.warnings)
+
+
+# =============================================================================
+# detect_revolving_door tests
+# =============================================================================
+
+from packed.patterns import detect_revolving_door
+
+
+def _lda_filing_with_lobbyists(lobbyists):
+    """An LD-2 shaped filing. covered_position sits on the row wrapping
+    the lobbyist, not on the lobbyist record itself."""
+    return {
+        "filing_uuid": "44444444-4444-4444-4444-444444444444",
+        "registrant": {"name": "TEST FIRM"},
+        "client": {"name": "TEST CLIENT"},
+        "lobbying_activities": [{
+            "general_issue_code": "TAX",
+            "lobbyists": [
+                {"lobbyist": {"id": lid, "first_name": first, "last_name": last},
+                 "covered_position": position, "new": False}
+                for lid, first, last, position in lobbyists
+            ],
+        }],
+    }
+
+
+class TestDetectRevolvingDoor:
+    @pytest.mark.asyncio
+    async def test_member_route_credits_the_members_committees(self):
+        """A lobbyist who staffed a sitting member is credited to the
+        seats that member holds."""
+        lda_routes = {"/filings/": {"json": {"results": [
+            _lda_filing_with_lobbyists([
+                (1, "JANE", "DOE", "Chief of Staff, Sen. Test Chairman"),
+            ]),
+        ]}}}
+        lda, cong = _make_lda_and_congress(lda_routes)
+        r = await detect_revolving_door(lda, cong, registrant_name="test firm")
+        assert r.status == "ACTIVE"
+        ssaf = next(f for f in r.findings if f["committee_id"] == "SSAF")
+        assert ssaf["lobbyist_count"] == 1
+        assert ssaf["lobbyists"][0]["route"] == "staffed a sitting member"
+        assert ssaf["lobbyists"][0]["via_member"] == "Test Chairman"
+
+    @pytest.mark.asyncio
+    async def test_committee_route_is_labelled_distinctly(self):
+        """Serving the committee is a different, stronger claim than
+        staffing someone who sits on it, so the routes are not merged."""
+        lda_routes = {"/filings/": {"json": {"results": [
+            _lda_filing_with_lobbyists([
+                (2, "JOHN", "ROE", "Professional Staff, Senate Agriculture Committee"),
+            ]),
+        ]}}}
+        lda, cong = _make_lda_and_congress(lda_routes)
+        r = await detect_revolving_door(lda, cong, registrant_name="test firm")
+        ssaf = next(f for f in r.findings if f["committee_id"] == "SSAF")
+        assert ssaf["lobbyists"][0]["route"] == "served the committee"
+        assert ssaf["lobbyists"][0]["via_member"] is None
+
+    @pytest.mark.asyncio
+    async def test_direct_service_wins_when_both_routes_reach_one_committee(self):
+        """Reaching a committee twice is one tie, reported on the
+        stronger route rather than double-counted."""
+        lda_routes = {"/filings/": {"json": {"results": [
+            _lda_filing_with_lobbyists([
+                (3, "ANNA", "POE",
+                 "Chief of Staff, Sen. Test Chairman; Counsel, Senate Agriculture Committee"),
+            ]),
+        ]}}}
+        lda, cong = _make_lda_and_congress(lda_routes)
+        r = await detect_revolving_door(lda, cong, registrant_name="test firm")
+        ssaf = next(f for f in r.findings if f["committee_id"] == "SSAF")
+        assert ssaf["lobbyist_count"] == 1
+        assert ssaf["lobbyists"][0]["route"] == "served the committee"
+
+    @pytest.mark.asyncio
+    async def test_a_former_member_is_reported_unresolved_not_guessed(self):
+        """Only current rosters are consulted, so a departed member does
+        not resolve. Reporting the name is what keeps the gap visible."""
+        lda_routes = {"/filings/": {"json": {"results": [
+            _lda_filing_with_lobbyists([
+                (4, "SAM", "COE", "Legislative Director, Rep. Someone Retired"),
+            ]),
+        ]}}}
+        lda, cong = _make_lda_and_congress(lda_routes)
+        r = await detect_revolving_door(lda, cong, registrant_name="test firm")
+        assert r.findings == []
+        assert "Someone Retired" in r.stats["unresolved_member_names"]
+        assert r.stats["with_covered_position"] == 1
+        assert r.stats["with_resolved_tie"] == 0
+
+    @pytest.mark.asyncio
+    async def test_lobbyists_without_a_disclosure_are_counted_but_not_tied(self):
+        lda_routes = {"/filings/": {"json": {"results": [
+            _lda_filing_with_lobbyists([
+                (5, "NO", "POSITION", None),
+                (6, "HAS", "POSITION", "Chief of Staff, Sen. Test Chairman"),
+            ]),
+        ]}}}
+        lda, cong = _make_lda_and_congress(lda_routes)
+        r = await detect_revolving_door(lda, cong, registrant_name="test firm")
+        assert r.stats["distinct_lobbyists"] == 2
+        assert r.stats["with_covered_position"] == 1
+
+    @pytest.mark.asyncio
+    async def test_a_lobbyist_repeated_across_filings_is_counted_once(self):
+        """The same person appears on every filing they work on."""
+        filing = _lda_filing_with_lobbyists([
+            (7, "REPEAT", "PERSON", "Chief of Staff, Sen. Test Chairman"),
+        ])
+        lda_routes = {"/filings/": {"json": {"results": [filing, filing, filing]}}}
+        lda, cong = _make_lda_and_congress(lda_routes)
+        r = await detect_revolving_door(lda, cong, registrant_name="test firm")
+        assert r.stats["distinct_lobbyists"] == 1
+        assert r.stats["lobbyist_rows"] == 3
+        ssaf = next(f for f in r.findings if f["committee_id"] == "SSAF")
+        assert ssaf["lobbyist_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_a_position_disclosed_on_only_one_filing_is_kept(self):
+        """Filers leave the field blank on some filings for a lobbyist
+        who disclosed it on others. Taking the last row seen would drop
+        the disclosure."""
+        lda_routes = {"/filings/": {"json": {"results": [
+            _lda_filing_with_lobbyists([(8, "PART", "TIME", "Chief of Staff, Sen. Test Chairman")]),
+            _lda_filing_with_lobbyists([(8, "PART", "TIME", None)]),
+        ]}}}
+        lda, cong = _make_lda_and_congress(lda_routes)
+        r = await detect_revolving_door(lda, cong, registrant_name="test firm")
+        assert r.stats["with_covered_position"] == 1
+        assert r.findings
+
+    @pytest.mark.asyncio
+    async def test_requires_a_registrant_or_client(self):
+        lda, cong = _make_lda_and_congress({})
+        r = await detect_revolving_door(lda, cong)
+        assert r.status == "ERROR"
+
+    @pytest.mark.asyncio
+    async def test_subcommittees_are_excluded_by_default(self):
+        lda_routes = {"/filings/": {"json": {"results": [
+            _lda_filing_with_lobbyists([
+                (9, "SUB", "PERSON", "Staff, Risk Management Subcommittee"),
+            ]),
+        ]}}}
+        lda, cong = _make_lda_and_congress(lda_routes)
+        default = await detect_revolving_door(lda, cong, registrant_name="test firm")
+        assert default.findings == []
+
+        lda2, cong2 = _make_lda_and_congress(lda_routes)
+        withsubs = await detect_revolving_door(
+            lda2, cong2, registrant_name="test firm", include_subcommittees=True,
+        )
+        assert [f["committee_id"] for f in withsubs.findings] == ["SSAF13"]
+        assert withsubs.findings[0]["is_subcommittee"] is True
+
+    @pytest.mark.asyncio
+    async def test_always_warns_about_coverage_limits(self):
+        """The floor-not-census caveats have to travel with the result;
+        a reader seeing three committees must not read it as all of them."""
+        lda_routes = {"/filings/": {"json": {"results": []}}}
+        lda, cong = _make_lda_and_congress(lda_routes)
+        r = await detect_revolving_door(lda, cong, registrant_name="test firm")
+        assert any("absence is not evidence" in w for w in r.warnings)
+        assert any("left office" in w for w in r.warnings)
+
+    @pytest.mark.asyncio
+    async def test_carries_provenance_now_that_it_is_built(self):
+        lda_routes = {"/filings/": {"json": {"results": []}}}
+        lda, cong = _make_lda_and_congress(lda_routes)
+        r = await detect_revolving_door(lda, cong, registrant_name="test firm")
+        assert r.provenance is not None
+        assert r.provenance["status"] == "SUPPORTED"

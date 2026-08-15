@@ -443,9 +443,34 @@ Remaining work on this:
   investigative signal; Disclaimer (62) and Soft Money (72) need ad-level and
   state-party data packed does not have.
 
-- [ ] Build the mined candidates, `revolving_door` first — it is the
-      best-grounded, it closes a pattern previously written off, and the
-      member-name parse is the only new machinery it needs.
+- [x] **`revolving_door` built and live-verified** (2026-08-15). Parser in
+      `packed/covered_position.py`, pattern in `packed/patterns.py`, exposed as
+      `pattern_revolving_door`. `dual_role` is now closed rather than pending.
+
+      Parser measured against 448 distinct 2024 `covered_position` values before
+      any pattern code was written: **41.3% yield at least one current member or
+      committee**, with committee-phrase precision at 85%. Two changes during
+      that measurement mattered more than the rest — splitting on clause
+      boundaries, without which "Health Policy Advisor, Senate Finance
+      Committee" scored equally against Senate Finance and Senate HELP and went
+      ambiguous; and refusing `Comm` as an abbreviation, which collides with
+      "Dept of Comm" and "FHA Commissioner". An abbreviation table carries the
+      shorthand no substring match reaches (`E&C`, `Ag`, `Approps`, `HELP`).
+
+      Live on Akin Gump 2024: 200 filings, 58 distinct lobbyists, 28 disclosing
+      a covered position, 7 resolving to a current tie across 24 committees —
+      Senate Judiciary and Senate Veterans' Affairs at the top. The gap between
+      28 and 7 is almost entirely former members (Alexander, Breaux, Brownback,
+      Burr), which the result reports by name rather than dropping.
+
+      Design rule, and the answer to the earlier "guesswork" objection: the
+      parser proposes, the roster disposes. Nothing resolves unless it matches
+      exactly one current entity; a phrase naming no chamber is reported
+      ambiguous rather than assigned.
+
+- [ ] Build the remaining mined candidates. `conduit_contribution_cluster` is
+      the next best — Schedule A alone, no new source, and the strongest
+      enforcement grounding of the four left.
 - [ ] Retrofit remains partial: `lobbyist_contribution_corroboration` is
       genuinely ungrounded rather than merely unresearched. It rests on the two
       filing regimes being independent, which is a property of the regimes, not

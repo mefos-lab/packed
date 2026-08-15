@@ -220,6 +220,22 @@ class CongressLegislatorsClient:
             "members": members,
         }
 
+    async def all_committees(
+        self, include_subcommittees: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Every committee as a flat list, each with its ID.
+
+        `search_committees` matches a substring of a name, which suits a
+        caller that has a name. A caller resolving free text needs to
+        score a phrase against the whole set instead.
+        """
+        index = await self._committee_index()
+        return [
+            {"committee_id": cid, **meta}
+            for cid, meta in index.items()
+            if include_subcommittees or not meta.get("is_subcommittee")
+        ]
+
     async def search_committees(self, query: str) -> list[dict[str, Any]]:
         """Case-insensitive substring match against committee names."""
         needle = query.lower().strip()
