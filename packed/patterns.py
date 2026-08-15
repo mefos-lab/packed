@@ -90,11 +90,20 @@ names, making a chamber-level version vacuous.
 
 Two alternatives were evaluated and rejected:
 - The `covered_position` field (a lobbyist's prior government job)
-  would give a genuine revolving-door signal, but it is only ~8%
-  populated and is inconsistent free text ("Sr. Leg. Asst. & Leg.
-  Dir., Rep. Stefanik (2/23-1/25)", "CoS, Sen Leahy, 2005-11").
-  Extracting member identities from it reliably isn't feasible without
-  guesswork of the same kind declined for pattern 3's memo codes.
+  would give a genuine revolving-door signal, but too few of its values
+  name a committee to build a committee-level pattern on, and it is
+  inconsistent free text ("Sr. Leg. Asst. & Leg. Dir., Rep. Stefanik
+  (2/23-1/25)", "CoS, Sen Leahy, 2005-11").
+
+  Corrected 2026-08-15: the "~8% populated" figure once recorded here
+  was wrong as stated. Over 3,980 lobbyist-activity rows sampled across
+  the 2024 corpus, the field is populated for 30.8% of unique
+  lobbyists; ~8% is the share whose text names a *committee*, which is
+  what this pattern would have needed. But 67% of populated values name
+  a *member*, and a named member resolves to committee seats through
+  the congress-legislators index this module already builds. That route
+  was never evaluated and is a live pattern candidate — see
+  `revolving_door` in patterns/PATTERNS.yaml.
 - Mapping LDA general issue codes (TAX, HCR, ENG) to committees of
   jurisdiction would be an editorial construction of ours, not source
   data, so a "match" would reflect our mapping rather than a disclosed
@@ -162,6 +171,7 @@ from .lda_client import LDAClient
 from .openfec_client import OpenFECClient
 from .congress_legislators_client import CongressLegislatorsClient
 from .errors import ServiceTracker, api_call
+from . import provenance as _provenance
 
 AMOUNT_TOLERANCE = 1.00  # dollars
 DATE_WINDOW_DAYS = 60
@@ -177,6 +187,17 @@ class PatternMatch:
     findings: list[dict[str, Any]]
     stats: dict[str, Any] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+
+    @property
+    def provenance(self) -> dict[str, Any] | None:
+        """What the literature says about this pattern.
+
+        Attached to the result rather than left to a separate lookup, so
+        a finding travels with its grounding — including the absence of
+        grounding, which is itself worth reporting.
+        """
+        p = _provenance.for_pattern(self.pattern_name)
+        return p.to_dict() if p else None
 
 
 def _committee_names_match(a: str | None, b: str | None) -> bool:

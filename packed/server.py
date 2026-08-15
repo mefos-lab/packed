@@ -33,6 +33,7 @@ from .propublica_client import ProPublicaNPEClient
 from .congress_legislators_client import CongressLegislatorsClient
 from .errors import ServiceTracker, api_call
 from . import patterns as patterns_module
+from . import provenance as provenance_module
 
 
 def _load_env():
@@ -629,6 +630,27 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+        Tool(
+            name="pattern_provenance",
+            description=(
+                "What the literature says about the detection patterns. "
+                "Each citation carries a stance — supports, limits, or "
+                "contradicts — because one work can support one pattern "
+                "and contradict another. Also lists patterns considered "
+                "but not built, and works evaluated and rejected. A "
+                "pattern with no citations is reported as ungrounded "
+                "rather than silently assumed sound."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "pattern_name": {"type": "string", "description": "A single pattern to describe (optional; omit for all)"},
+                    "include_proposed": {"type": "boolean", "description": "Include patterns considered but not built (optional, default true)"},
+                    "include_sources": {"type": "boolean", "description": "Include the full source registry (optional, default false)"},
+                },
+                "required": [],
+            },
+        ),
     ]
 
 
@@ -971,6 +993,32 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 min_amount=arguments.get("min_amount", 0.0),
             )
             result = asdict(match)
+
+        elif name == "pattern_provenance":
+            single = arguments.get("pattern_name")
+            if single:
+                p = provenance_module.for_pattern(single)
+                result = p.to_dict() if p else {
+                    "error": f"no provenance entry for {single!r}",
+                    "known": [x.pattern_name for x in provenance_module.all_patterns()],
+                }
+            else:
+                result = {
+                    "patterns": [p.to_dict() for p in provenance_module.all_patterns()],
+                    "note": (
+                        "A pattern with status PROPOSED and no citations is "
+                        "ungrounded in the literature, not disproven. A "
+                        "CONTESTED pattern has a work arguing against its "
+                        "premise; read that citation before relying on it."
+                    ),
+                }
+                if arguments.get("include_proposed", True):
+                    result["considered_not_built"] = [
+                        p.to_dict() for p in provenance_module.proposed_patterns()
+                    ]
+                if arguments.get("include_sources", False):
+                    result["sources"] = provenance_module.sources()
+                    result["rejected"] = provenance_module.rejected()
 
         else:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]

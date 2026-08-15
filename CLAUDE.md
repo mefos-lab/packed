@@ -107,6 +107,44 @@ source, look up its documented rate limit and add an entry. LDA's
 120/min limit is confirmed from its live OpenAPI schema; OpenFEC and
 ProPublica NPE entries are conservative estimates pending confirmation.
 
+## Pattern provenance
+
+`patterns/SOURCES.yaml` is a keyed registry of works; `patterns/PATTERNS.yaml`
+records what each says about each pattern. Loaded by `packed/provenance.py`,
+exposed as the `pattern_provenance` tool, and attached to every result.
+
+**Citations carry a stance** — `supports`, `limits`, `contradicts` — because a
+work can do opposite things to two patterns. Hall & Wayman is evidence for
+aggregating money by committee seat and evidence against a votes-based timing
+pattern. A flat source list would let either citation read as endorsement.
+
+One work can also take *both* stances on *one* pattern, and this is not a
+contradiction to tidy up. FEC enforcement files show foreign-national
+contributions are real and prosecuted (supports) and that an address test looks
+the wrong way for them, since the prosecuted schemes use domestic straw donors
+(contradicts). Evidence that a scheme exists is not evidence that a given test
+finds it — keep the two claims as separate citations.
+
+**Enforcement sources** (`kind: enforcement`) ground a pattern differently from
+a study: the question is not what a scheme correlates with but whether a
+regulator has pursued it. They carry an `access` field saying how to pull the
+case files, because a typology whose cases cannot be retrieved is an assertion
+about cases rather than a source. FEC MURs are the one here, reachable on the
+OpenFEC key packed already holds.
+
+**Status is derived, not asserted.** A pattern is PROPOSED when uncited,
+SUPPORTED when a work supports it, CONTESTED when one contradicts it. A test
+enforces that status matches the citations, so the two cannot drift.
+
+When adding a pattern, add a registry entry — even an empty one. An uncited
+pattern reporting PROPOSED is honest; a pattern with no entry at all reads as
+"not checked", which is different and worse.
+
+When adding a source, append to SOURCES.yaml and cite it. Never inline a
+citation in a pattern; the registry is the single place a work is described, so
+a revised edition is updated once. Run `provenance.validate()` — a citation
+pointing at a renamed source fails silently otherwise.
+
 ## Skill
 
 `/follow` (`.claude/skills/follow/SKILL.md`) is the orchestration layer.
