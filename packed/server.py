@@ -721,6 +721,31 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="pattern_candidate_support_ratio",
+            description=(
+                "Report what share of a committee's spending reaches "
+                "candidates and party committees versus its own "
+                "operations, per cycle. A low share is lawful and often "
+                "legitimate — independent-expenditure and issue groups "
+                "are not meant to give to candidates — so this answers "
+                "the factual question of where donors' money went, not "
+                "whether anything was wrong. Cycles below a receipts "
+                "floor are reported separately, since a committee that "
+                "raised little has a ratio set by one invoice."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "committee_id": {"type": "string", "description": "FEC committee ID (optional if committee_name given)"},
+                    "committee_name": {"type": "string", "description": "Committee name to resolve (optional if committee_id given)"},
+                    "cycle": {"type": "integer", "description": "Restrict to one election cycle, e.g. 2024 (optional)"},
+                    "min_receipts": {"type": "number", "description": "Cycles with receipts below this are reported but not scored (optional, default 100000)"},
+                    "low_support_threshold": {"type": "number", "description": "Percent below which a cycle is flagged low_support (optional, default 25)"},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
             name="pattern_provenance",
             description=(
                 "What the literature says about the detection patterns. "
@@ -782,6 +807,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     if name == "pattern_employer_contribution_clusters" and fec_client is None:
         return _not_configured("OpenFEC", "OPENFEC_API_KEY")
     if name == "pattern_common_vendor_overlap" and fec_client is None:
+        return _not_configured("OpenFEC", "OPENFEC_API_KEY")
+    if name == "pattern_candidate_support_ratio" and fec_client is None:
         return _not_configured("OpenFEC", "OPENFEC_API_KEY")
 
     tracker = ServiceTracker()
@@ -1120,6 +1147,17 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 support_oppose_indicator=arguments.get("support_oppose_indicator", "S"),
                 min_amount=arguments.get("min_amount", patterns_module.VENDOR_OVERLAP_MIN_AMOUNT),
                 max_ie_committees=arguments.get("max_ie_committees", patterns_module.VENDOR_OVERLAP_MAX_IE_COMMITTEES),
+            )
+            result = _pattern_result(match)
+
+        elif name == "pattern_candidate_support_ratio":
+            match = await patterns_module.detect_candidate_support_ratio(
+                fec_client,
+                committee_id=arguments.get("committee_id"),
+                committee_name=arguments.get("committee_name"),
+                cycle=arguments.get("cycle"),
+                min_receipts=arguments.get("min_receipts", patterns_module.SUPPORT_RATIO_MIN_RECEIPTS),
+                low_support_threshold=arguments.get("low_support_threshold", patterns_module.SUPPORT_RATIO_LOW_THRESHOLD),
             )
             result = _pattern_result(match)
 

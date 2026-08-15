@@ -1202,3 +1202,152 @@ class TestDetectCommonVendorOverlap:
         fec = _make_vendor_fec(_CAMPAIGN, [], [])
         r = await detect_common_vendor_overlap(fec, candidate_id="S0TEST01")
         assert r.provenance["status"] == "SUPPORTED"
+
+
+# =============================================================================
+# detect_candidate_support_ratio tests
+# =============================================================================
+
+from packed.patterns import detect_candidate_support_ratio
+
+
+def _totals(cycle, receipts, disbursements, to_candidates,
+            operating, op_pct=None, cand_pct=None):
+    return {
+        "cycle": cycle,
+        "receipts": receipts,
+        "disbursements": disbursements,
+        "fed_candidate_committee_contributions": to_candidates,
+        "operating_expenditures": operating,
+        "operating_expenditures_percent": op_pct,
+        "contributions_ie_and_party_expenditures_made_percent": cand_pct,
+    }
+
+
+def _make_totals_fec(rows, committees=None):
+    routes = {"/totals/": {"json": {"results": rows}}}
+    if committees is not None:
+        routes["/committees/"] = {"json": {"results": committees}}
+    fec = OpenFECClient(api_key="test_key")
+    fec._client = httpx.AsyncClient(
+        base_url="https://api.open.fec.gov/v1", transport=MockTransport(routes),
+    )
+    return fec
+
+
+class TestDetectCandidateSupportRatio:
+    @pytest.mark.asyncio
+    async def test_flags_a_low_share_above_the_floor(self):
+        fec = _make_totals_fec([
+            _totals(2020, 473371, 470000, 55000, 409000, op_pct=87.15, cand_pct=12.85),
+        ])
+        r = await detect_candidate_support_ratio(fec, committee_id="C0TEST01")
+        assert r.status == "ACTIVE"
+        assert r.findings[0]["low_support"] is True
+
+    @pytest.mark.asyncio
+    async def test_a_committee_giving_most_of_its_money_is_not_flagged(self):
+        fec = _make_totals_fec([
+            _totals(2006, 2861152, 2800000, 16557, 53000, op_pct=1.9, cand_pct=97.56),
+        ])
+        r = await detect_candidate_support_ratio(fec, committee_id="C0TEST01")
+        assert r.findings[0]["low_support"] is False
+
+    @pytest.mark.asyncio
+    async def test_periods_below_the_receipts_floor_are_not_scored(self):
+        """A committee that raised $1,481 shows 100% overhead on the
+        strength of one invoice. Scoring that produces a finding about
+        nothing."""
+        fec = _make_totals_fec([
+            _totals(2024, 1481, 1481, 0, 1481, op_pct=100.0, cand_pct=None),
+        ])
+        r = await detect_candidate_support_ratio(fec, committee_id="C0TEST01")
+        assert r.findings == []
+        assert r.stats["periods_below_receipts_floor"] == 1
+        assert r.stats["below_floor"][0]["cycle"] == 2024
+
+    @pytest.mark.asyncio
+    async def test_the_floor_is_adjustable(self):
+        fec = _make_totals_fec([
+            _totals(2024, 1481, 1481, 0, 1481, op_pct=100.0, cand_pct=0.0),
+        ])
+        r = await detect_candidate_support_ratio(
+            fec, committee_id="C0TEST01", min_receipts=1000.0,
+        )
+        assert len(r.findings) == 1
+        assert r.findings[0]["low_support"] is True
+
+    @pytest.mark.asyncio
+    async def test_the_fec_percentages_are_surfaced_not_recomputed(self):
+        """A reader must be able to reconcile against the agency's own
+        figure, so its fields are passed through under their own names
+        and any locally computed share is named differently."""
+        fec = _make_totals_fec([
+            _totals(2020, 473371, 470000, 55000, 409000, op_pct=87.15, cand_pct=12.85),
+        ])
+        r = await detect_candidate_support_ratio(fec, committee_id="C0TEST01")
+        f = r.findings[0]
+        assert f["operating_share_reported"] == 87.15
+        assert f["candidate_and_party_share_reported"] == 12.85
+        assert f["share_of_disbursements_to_candidates"] != 12.85
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_a_computed_share_when_the_fec_reports_none(self):
+        fec = _make_totals_fec([
+            _totals(2020, 500000, 400000, 40000, 360000, op_pct=None, cand_pct=None),
+        ])
+        r = await detect_candidate_support_ratio(fec, committee_id="C0TEST01")
+        assert r.findings[0]["share_of_disbursements_to_candidates"] == 10.0
+        assert r.findings[0]["low_support"] is True
+
+    @pytest.mark.asyncio
+    async def test_cycles_are_reported_newest_first(self):
+        fec = _make_totals_fec([
+            _totals(2020, 500000, 400000, 300000, 90000, cand_pct=80.0),
+            _totals(2024, 500000, 400000, 300000, 90000, cand_pct=80.0),
+        ])
+        r = await detect_candidate_support_ratio(fec, committee_id="C0TEST01")
+        assert [f["cycle"] for f in r.findings] == [2024, 2020]
+
+    @pytest.mark.asyncio
+    async def test_resolves_a_committee_by_name(self):
+        fec = _make_totals_fec(
+            [_totals(2020, 500000, 400000, 300000, 90000, cand_pct=80.0)],
+            committees=[{"committee_id": "C0FOUND1", "name": "FOUND PAC"}],
+        )
+        r = await detect_candidate_support_ratio(fec, committee_name="found")
+        assert r.stats["committee_id"] == "C0FOUND1"
+        assert r.stats["committee_name"] == "FOUND PAC"
+
+    @pytest.mark.asyncio
+    async def test_an_unmatched_name_is_not_an_error(self):
+        fec = _make_totals_fec([], committees=[])
+        r = await detect_candidate_support_ratio(fec, committee_name="nothing here")
+        assert r.status == "ACTIVE"
+        assert r.findings == []
+
+    @pytest.mark.asyncio
+    async def test_requires_an_identifier(self):
+        fec = _make_totals_fec([])
+        r = await detect_candidate_support_ratio(fec)
+        assert r.status == "ERROR"
+
+    @pytest.mark.asyncio
+    async def test_always_warns_that_a_low_share_is_lawful(self):
+        """The pattern was renamed away from 'scam PAC' precisely
+        because the number does not carry that claim."""
+        fec = _make_totals_fec([])
+        r = await detect_candidate_support_ratio(fec, committee_id="C0TEST01")
+        assert any("not misconduct" in w for w in r.warnings)
+        assert any("intermediary" in w for w in r.warnings)
+
+    @pytest.mark.asyncio
+    async def test_carries_provenance_recording_the_misattribution(self):
+        """The enforcement archive is cited as a limit, not as support:
+        its 'Fraudulent misrepresentation' subject is impersonation
+        under 52 USC 30124, not a committee's spending mix."""
+        fec = _make_totals_fec([])
+        r = await detect_candidate_support_ratio(fec, committee_id="C0TEST01")
+        stances = {c["source"]: c["stance"] for c in r.provenance["citations"]}
+        assert stances["fec_murs"] == "limits"
+        assert stances["ti_political_finance_standards"] == "supports"

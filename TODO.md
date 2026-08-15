@@ -551,7 +551,38 @@ Remaining work on this:
       or depend on it by URL (`onoma @ git+https://github.com/mefos-lab/onoma@<tag>`,
       which needs a tag that does not yet exist). Publishing is deferred by
       choice; until one of them happens, neither repo is installable.
-- [ ] Build `scam_pac_ratio` — the last mined candidate with a clean data path.
+- [x] **`candidate_support_ratio` built and live-verified** (2026-08-15),
+      renamed from `scam_pac_ratio`.
+
+      **The grounding was a misattribution, and checking it is what caught
+      that.** The registry cited the FEC's "Fraudulent misrepresentation"
+      enforcement subject as evidence the conduct was pursued. The statute
+      behind that label is 52 USC 30124 — impersonating a candidate or party
+      while soliciting — which has nothing to do with a committee's spending
+      mix. The subject label had been read as though the colloquial phrase
+      "scam PAC" were a legal category. `fec_murs` is now cited as a **limit**
+      on this pattern rather than support for it, so the error stays recorded.
+      A note in `SOURCES.yaml` warns to check the statute behind any MUR
+      subject before treating the label as evidence.
+
+      **The FEC already computes the ratio.** `operating_expenditures_percent`
+      and `contributions_ie_and_party_expenditures_made_percent` are existing
+      fields, so they are surfaced rather than recalculated and a reader can
+      reconcile against the agency. What packed adds is the receipts floor and
+      the cycle-by-cycle view.
+
+      Live: Campaign for a Conservative Majority (a MUR respondent) 2020 —
+      $473,371 receipts, 12.85% to candidates, 87% operating, flagged. Club for
+      Growth runs 78–97% to candidates across four cycles and is not flagged.
+      The floor correctly excluded three periods for the first committee, where
+      receipts were four figures and the ratio meaningless.
+
+- [ ] Remaining mined candidates are all judged not worth building as
+      specified: `timing_correlation` and `foreign_national_contributions` are
+      CONTESTED, `dual_role` is closed in favour of `revolving_door`, and
+      `foreign_principal_lobbying` is grounded but sparse (3% of filings) and
+      would mostly document a data gap — FARA is the register that matters and
+      packed does not have it.
 - [ ] Retrofit remains partial: `lobbyist_contribution_corroboration` is
       genuinely ungrounded rather than merely unresearched. It rests on the two
       filing regimes being independent, which is a property of the regimes, not
