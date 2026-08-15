@@ -210,8 +210,8 @@ patterns exist and their shared structure is actually clear.
 **The MCP server runs on mcp 2.x via a shim.** mcp 2.0 removed the
 `@server.list_tools()` / `@server.call_tool()` decorator API this server
 was built on, and replaced it with a tool manager that derives each
-tool's schema from a Python function signature. Rather than rewrite all
-32 tools as typed functions — which would silently lose the enums,
+tool's schema from a Python function signature. Rather than rewrite
+every tool as a typed function — which would silently lose the enums,
 per-field descriptions and required/optional distinctions the
 hand-authored schemas carry — `packed/mcp_compat.py` keeps those schemas
 verbatim and adapts them to the 2.0 manager.

@@ -158,6 +158,42 @@ intermediaries separately.
 Ordinary vendor and operating spending is excluded by the same test
 pattern 2 uses — a Schedule B row with no ``recipient_committee_id`` is
 not a transfer to a committee.
+
+Pattern 6: revolving_door. Groups a lobbying operation's people by the
+congressional committees they disclose having previously worked for.
+
+This is what became of the "dual role" pattern that pattern 4 above
+records as unbuildable. That assessment was right about the route it
+tried and wrong about the field: it asked which committee a client
+lobbies *before*, which LDA genuinely does not record, and then
+dismissed ``covered_position`` on a population figure that turned out to
+describe only the subset naming a committee. Most disclosures name a
+*member* instead, and a member is exactly what the congress-legislators
+index in this module turns into committee seats.
+
+So the question is asked from the other end — not which committee the
+client lobbies, but which committees the client's lobbyists came from.
+Both are ties between a firm and a committee; only the second is
+disclosed.
+
+Two routes reach a committee and the result labels which was used,
+because they are not equally strong. "Served the committee" is the
+filer naming the committee itself. "Staffed a sitting member" credits a
+lobbyist to every committee that member sits on today, which is a tie to
+a person and inherits whatever seats they currently hold.
+
+Parsing lives in ``packed/covered_position.py`` and is built to propose
+rather than decide: it extracts generously, every candidate is resolved
+against congress-legislators, and anything not matching exactly one
+current entity is reported unresolved instead of guessed. A phrase
+naming no chamber ("Commerce Committee") names two real committees and
+is reported ambiguous rather than resolved by picking one.
+
+What it cannot see, reported as warnings on every result: most lobbyists
+disclose no covered position at all, so a firm's real count is higher
+than any result here; and references to members who have left office do
+not resolve against a current-only roster, which is the single largest
+category of what gets dropped.
 """
 
 from __future__ import annotations
@@ -171,6 +207,7 @@ from .lda_client import LDAClient
 from .openfec_client import OpenFECClient
 from .congress_legislators_client import CongressLegislatorsClient
 from .errors import ServiceTracker, api_call
+from . import covered_position as _covered_position
 from . import provenance as _provenance
 
 AMOUNT_TOLERANCE = 1.00  # dollars
@@ -966,5 +1003,279 @@ async def detect_industry_concentration(
             "unattributed rather than followed — the recipient has no candidate "
             "of its own to resolve. Trace those separately with the leadership "
             "PAC and joint-fundraising patterns.",
+        ] + tracker.warnings,
+    )
+
+
+# One filing page is 25 records; a large registrant files hundreds a year
+# and the lobbyist roster repeats heavily across them, so a few pages
+# reach most of the distinct people at a fraction of the requests.
+REVOLVING_DOOR_MAX_PAGES = 8
+
+
+async def detect_revolving_door(
+    lda_client: LDAClient,
+    congress_client: CongressLegislatorsClient,
+    registrant_name: str | None = None,
+    client_name: str | None = None,
+    filing_year: int | None = None,
+    include_subcommittees: bool = False,
+) -> PatternMatch:
+    """Lobbyists with a disclosed prior tie to a current member or committee.
+
+    This is what became of the roadmap's "dual role" pattern after the
+    route it assumed turned out not to exist. Dual role wanted the
+    committee a client lobbies *before*, which LDA does not record. This
+    asks the question from the other end — which committees the client's
+    own lobbyists previously *worked for* — and that LDA does record, in
+    the `covered_position` disclosure.
+
+    Two routes reach a committee, and the result labels which was used
+    because they are not equally strong:
+
+    - **served the committee**: the filer named the committee itself.
+    - **staffed a sitting member**: the filer named a member, who is
+      credited to every committee they currently sit on. This is a tie to
+      a person, not to a committee's work, and it inherits whatever the
+      member's seats happen to be today.
+
+    Everything is resolved against congress-legislators and reported
+    unresolved when it does not match exactly one current entity. See
+    `packed/covered_position.py` for why the parser is built to propose
+    rather than decide.
+    """
+    tracker = ServiceTracker()
+
+    if not registrant_name and not client_name:
+        return PatternMatch(
+            pattern_name="revolving_door",
+            title="Revolving-Door Ties to Current Committees",
+            risk_level="INFO",
+            status="ERROR",
+            description="Provide a registrant_name or a client_name.",
+            findings=[],
+            warnings=tracker.warnings,
+        )
+
+    # Collect distinct lobbyists across filing pages. The same person
+    # appears on every filing they work, so dedupe on the LDA lobbyist id.
+    disclosed: dict[Any, dict[str, Any]] = {}
+    total_lobbyist_rows = 0
+    filings_seen = 0
+    pages_fetched = 0
+
+    for page in range(1, REVOLVING_DOOR_MAX_PAGES + 1):
+        result = await api_call(
+            tracker, "LDA", "/filings/",
+            lambda p=page: lda_client.search_filings(
+                registrant_name=registrant_name,
+                client_name=client_name,
+                filing_year=filing_year,
+                page=p,
+                page_size=25,
+            ),
+        )
+        if result is None:
+            break
+        pages_fetched += 1
+        results = result.get("results", []) or []
+        if not results:
+            break
+
+        for filing in results:
+            filings_seen += 1
+            for activity in filing.get("lobbying_activities", []) or []:
+                for row in activity.get("lobbyists", []) or []:
+                    total_lobbyist_rows += 1
+                    person = row.get("lobbyist") or {}
+                    lobbyist_id = person.get("id")
+                    if lobbyist_id is None:
+                        continue
+                    position = row.get("covered_position")
+                    entry = disclosed.setdefault(lobbyist_id, {
+                        "name": " ".join(
+                            p for p in (person.get("first_name"),
+                                        person.get("last_name")) if p
+                        ).title() or str(lobbyist_id),
+                        "covered_position": None,
+                    })
+                    # A lobbyist's covered position is disclosed on some
+                    # filings and left blank on others; keep the first
+                    # non-empty value rather than the last row seen.
+                    if position and not entry["covered_position"]:
+                        entry["covered_position"] = position.strip()
+
+        if not result.get("next"):
+            break
+
+    if not disclosed and tracker.warnings:
+        return PatternMatch(
+            pattern_name="revolving_door",
+            title="Revolving-Door Ties to Current Committees",
+            risk_level="INFO",
+            status="ERROR",
+            description="Could not fetch LDA filings.",
+            findings=[],
+            warnings=tracker.warnings,
+        )
+
+    primed = await api_call(
+        tracker, "congress-legislators", "(prime file cache)",
+        lambda: _prime_congress_cache(congress_client),
+    )
+    if primed is None:
+        return PatternMatch(
+            pattern_name="revolving_door",
+            title="Revolving-Door Ties to Current Committees",
+            risk_level="INFO",
+            status="ERROR",
+            description="Could not fetch congress-legislators data.",
+            findings=[],
+            warnings=tracker.warnings,
+        )
+
+    committees = await congress_client.all_committees(
+        include_subcommittees=include_subcommittees,
+    )
+
+    by_committee: dict[str, dict[str, Any]] = {}
+    member_ties: dict[str, list[str]] = {}
+    unresolved_members: dict[str, int] = {}
+    unresolved_committees: dict[str, int] = {}
+    ambiguous: dict[str, int] = {}
+
+    legislator_cache: dict[str, list[dict[str, Any]]] = {}
+    seat_cache: dict[str, list[dict[str, Any]]] = {}
+
+    with_disclosure = 0
+    with_tie = 0
+
+    def credit(committee: dict[str, Any], lobbyist: str, route: str,
+               via: str | None, position: str) -> None:
+        cid = committee.get("committee_id")
+        if not cid:
+            return
+        entry = by_committee.setdefault(cid, {
+            "committee_id": cid,
+            "committee_name": committee.get("name"),
+            "chamber": committee.get("type"),
+            "is_subcommittee": committee.get("is_subcommittee", False),
+            "lobbyist_count": 0,
+            "lobbyists": [],
+        })
+        for existing in entry["lobbyists"]:
+            # A lobbyist reaching one committee by both routes is
+            # reported once, on the stronger of the two.
+            if existing["lobbyist"] == lobbyist:
+                if route == "served the committee":
+                    existing.update(route=route, via_member=via)
+                return
+        entry["lobbyists"].append({
+            "lobbyist": lobbyist,
+            "route": route,
+            "via_member": via,
+            "disclosed_position": position,
+        })
+        entry["lobbyist_count"] += 1
+
+    for record in disclosed.values():
+        position = record["covered_position"]
+        if not position:
+            continue
+        with_disclosure += 1
+        parsed = _covered_position.parse(position)
+        tied = False
+
+        for name in parsed.member_names:
+            if name not in legislator_cache:
+                legislator_cache[name] = await congress_client.search_legislators_by_name(name)
+            matches = legislator_cache[name]
+            if len(matches) != 1:
+                bucket = ambiguous if len(matches) > 1 else unresolved_members
+                bucket[name] = bucket.get(name, 0) + 1
+                continue
+
+            legislator = matches[0]
+            bioguide = legislator.get("id", {}).get("bioguide")
+            official = legislator.get("name", {}).get("official_full") or name
+            member_ties.setdefault(official, [])
+            if record["name"] not in member_ties[official]:
+                member_ties[official].append(record["name"])
+            tied = True
+
+            if bioguide not in seat_cache:
+                seat_cache[bioguide] = await congress_client.get_committees_for_legislator(bioguide)
+            for seat in seat_cache[bioguide]:
+                if seat.get("is_subcommittee") and not include_subcommittees:
+                    continue
+                credit(seat, record["name"], "staffed a sitting member", official, position)
+
+        for phrase in parsed.committee_phrases:
+            matches = _covered_position.match_committees(phrase, committees)
+            if len(matches) != 1:
+                bucket = ambiguous if len(matches) > 1 else unresolved_committees
+                bucket[phrase] = bucket.get(phrase, 0) + 1
+                continue
+            tied = True
+            credit(matches[0], record["name"], "served the committee", None, position)
+
+        if tied:
+            with_tie += 1
+
+    findings = sorted(
+        by_committee.values(),
+        key=lambda c: (c["lobbyist_count"], c["committee_name"] or ""),
+        reverse=True,
+    )
+
+    return PatternMatch(
+        pattern_name="revolving_door",
+        title="Revolving-Door Ties to Current Committees",
+        risk_level="INFO",
+        status="ACTIVE",
+        description=(
+            "Groups a lobbying operation's people by the congressional "
+            "committees they disclose having worked for, either directly "
+            "or by staffing a member who sits on one. Moving from "
+            "government to lobbying is lawful and extremely common; what "
+            "the disclosure supports is showing where a firm's inside "
+            "experience is concentrated, not an allegation about any of "
+            "it. Note a lobbyist is counted once per committee reached, "
+            "so committee counts sum to more than the headcount."
+        ),
+        findings=findings,
+        stats={
+            "registrant_name": registrant_name,
+            "client_name": client_name,
+            "filing_year": filing_year,
+            "filings_examined": filings_seen,
+            "pages_fetched": pages_fetched,
+            "lobbyist_rows": total_lobbyist_rows,
+            "distinct_lobbyists": len(disclosed),
+            "with_covered_position": with_disclosure,
+            "with_resolved_tie": with_tie,
+            "distinct_committees": len(findings),
+            "members_staffed": sorted(
+                ({"member": k, "lobbyists": v} for k, v in member_ties.items()),
+                key=lambda m: len(m["lobbyists"]), reverse=True,
+            ),
+            "unresolved_member_names": sorted(unresolved_members),
+            "unresolved_committee_phrases": sorted(unresolved_committees),
+            "ambiguous_references": sorted(ambiguous),
+        },
+        warnings=[
+            "Only lobbyists who disclose a covered position can be "
+            "assessed at all, and most do not. A lobbyist absent from "
+            "these findings may have held a government post and not "
+            "disclosed one here — absence is not evidence of no prior "
+            "service.",
+            "References to members who have left office do not resolve, "
+            "because only current rosters are consulted. This is the "
+            "largest single category of unresolved names, so ties to "
+            "former members are systematically missing rather than rare.",
+            "Committee seats are current-only: a lobbyist credited to a "
+            "committee via a member is credited to the seats that member "
+            "holds today, which need not be the seats they held while "
+            "that lobbyist worked for them.",
         ] + tracker.warnings,
     )

@@ -74,6 +74,18 @@ def _not_configured(source: str, env_var: str) -> list[TextContent]:
     )]
 
 
+def _pattern_result(match) -> dict:
+    """Serialise a PatternMatch for the wire, provenance included.
+
+    `asdict` copies dataclass fields only, so it silently drops
+    `provenance` — which is a property. The whole point of hanging
+    provenance off the result is that a finding travels with its
+    grounding; serialising without it left every caller to look the
+    grounding up separately, which is what the design set out to avoid.
+    """
+    return {**asdict(match), "provenance": match.provenance}
+
+
 async def list_tools() -> list[Tool]:
     """The advertised tool set — source of truth for every schema."""
     return [
@@ -631,6 +643,30 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="pattern_revolving_door",
+            description=(
+                "Group a lobbying operation's people by the "
+                "congressional committees they disclose having worked "
+                "for, from LDA's covered_position field — either serving "
+                "the committee directly, or staffing a member who now "
+                "sits on it. Moving from government to lobbying is "
+                "lawful and common; this shows where a firm's inside "
+                "experience is concentrated. Most lobbyists disclose no "
+                "covered position, and ties to members who have left "
+                "office do not resolve, so results are a floor."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "registrant_name": {"type": "string", "description": "Lobbying firm/registrant name, e.g. 'Akin Gump' (optional if client_name given)"},
+                    "client_name": {"type": "string", "description": "Client name whose filings to examine (optional if registrant_name given)"},
+                    "filing_year": {"type": "integer", "description": "LDA filing year, e.g. 2024 (optional)"},
+                    "include_subcommittees": {"type": "boolean", "description": "Include subcommittee seats as well as full committees (optional, default false)"},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
             name="pattern_provenance",
             description=(
                 "What the literature says about the detection patterns. "
@@ -686,6 +722,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     if name == "pattern_industry_concentration" and fec_client is None:
         return _not_configured("OpenFEC", "OPENFEC_API_KEY")
     if name == "pattern_lobbying_money_to_committee_seats" and lda_client is None:
+        return _not_configured("LDA", "LDA_API_KEY")
+    if name == "pattern_revolving_door" and lda_client is None:
         return _not_configured("LDA", "LDA_API_KEY")
 
     tracker = ServiceTracker()
@@ -952,7 +990,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 registrant_name=arguments.get("registrant_name"),
                 filing_year=arguments.get("filing_year"),
             )
-            result = asdict(match)
+            result = _pattern_result(match)
 
         elif name == "pattern_leadership_pac_transfers":
             match = await patterns_module.detect_leadership_pac_transfers(
@@ -962,7 +1000,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 two_year_transaction_period=arguments.get("two_year_transaction_period"),
                 min_transfer_amount=arguments.get("min_transfer_amount", 0.0),
             )
-            result = asdict(match)
+            result = _pattern_result(match)
 
         elif name == "pattern_jfc_obscuring":
             match = await patterns_module.detect_jfc_obscuring(
@@ -972,7 +1010,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 two_year_transaction_period=arguments.get("two_year_transaction_period"),
                 min_transfer_amount=arguments.get("min_transfer_amount", 0.0),
             )
-            result = asdict(match)
+            result = _pattern_result(match)
 
         elif name == "pattern_lobbying_money_to_committee_seats":
             match = await patterns_module.detect_lobbying_money_to_committee_seats(
@@ -981,7 +1019,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 filing_year=arguments.get("filing_year"),
                 include_subcommittees=arguments.get("include_subcommittees", False),
             )
-            result = asdict(match)
+            result = _pattern_result(match)
 
         elif name == "pattern_industry_concentration":
             match = await patterns_module.detect_industry_concentration(
@@ -992,7 +1030,17 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 include_subcommittees=arguments.get("include_subcommittees", False),
                 min_amount=arguments.get("min_amount", 0.0),
             )
-            result = asdict(match)
+            result = _pattern_result(match)
+
+        elif name == "pattern_revolving_door":
+            match = await patterns_module.detect_revolving_door(
+                lda_client, congress_client,
+                registrant_name=arguments.get("registrant_name"),
+                client_name=arguments.get("client_name"),
+                filing_year=arguments.get("filing_year"),
+                include_subcommittees=arguments.get("include_subcommittees", False),
+            )
+            result = _pattern_result(match)
 
         elif name == "pattern_provenance":
             single = arguments.get("pattern_name")

@@ -88,3 +88,36 @@ async def test_enums_survive_registration():
 async def test_unknown_tool_is_handled_not_raised():
     result = await server_module.call_tool("definitely_not_a_real_tool", {})
     assert "Unknown tool" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test_pattern_results_carry_provenance_over_the_wire():
+    """`asdict` copies dataclass fields only, so it silently dropped the
+    `provenance` property and every pattern tool shipped its findings
+    without the grounding the design promised. Serialisation is where
+    that broke, so this asserts on the serialised form rather than on
+    the dataclass."""
+    from packed.patterns import PatternMatch
+
+    match = PatternMatch(
+        "industry_concentration", "t", "INFO", "ACTIVE", "d", [],
+    )
+    payload = server_module._pattern_result(match)
+    assert payload["provenance"] is not None
+    assert payload["provenance"]["status"] == "SUPPORTED"
+    assert payload["provenance"]["citations"]
+    # The fields must survive too — this wraps asdict, not replaces it.
+    assert payload["pattern_name"] == "industry_concentration"
+    assert payload["findings"] == []
+
+
+@pytest.mark.asyncio
+async def test_every_pattern_tool_serialises_through_the_same_path():
+    """A new pattern tool added with a bare `asdict(match)` would drop
+    provenance again and no other test would notice."""
+    import inspect
+    source = inspect.getsource(server_module.call_tool)
+    assert "asdict(match)" not in source, (
+        "a pattern tool is serialising with asdict(match) directly; "
+        "use _pattern_result(match) so provenance survives"
+    )
