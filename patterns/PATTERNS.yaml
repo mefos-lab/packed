@@ -191,6 +191,52 @@ patterns:
           committees hide the eventual recipient, so any cluster count
           is a floor.
 
+  common_vendor_overlap:
+    status: SUPPORTED
+    note: >-
+      Vendors paid by both a candidate's campaign and an outside group
+      spending independently to elect them. Built from Schedule B on the
+      campaign side and Schedules E and B on the outside-spender side.
+
+      The schedule split was the thing that had to be measured rather
+      than assumed. An independent-expenditure committee reports its
+      media buys on Schedule E under a separate payee field and carries
+      almost nothing on Schedule B — one such committee had a single
+      Schedule B row against millions in reported expenditures. A
+      Schedule-B-only comparison, which is what "intersect the
+      disbursements" implies, would find essentially nothing.
+
+      Coordination is a legal conclusion resting on facts no filing
+      discloses, and sharing a vendor is lawful where the firm
+      firewalls its teams. The output is the overlap and what each side
+      paid, never a claim about coordination.
+
+      Commodity vendors dominate a raw overlap list — every committee
+      buys the same airlines, rideshare and shipping. Each vendor
+      therefore carries its share of each side's spending, which is what
+      separates a consultancy taking real money from both from an
+      airline taking a rounding error.
+    citations:
+      - source: fec_murs
+        stance: supports
+        because: >-
+          "Expenditures-Coordinated" is a recurring enforcement subject,
+          so the conduct is pursued rather than merely theorised.
+      - source: oecd_lobbying_21c
+        stance: limits
+        because: >-
+          Indirect routes go unrecorded. A shared vendor is one
+          observable trace of a relationship disclosure does not
+          otherwise capture, so overlap understates any real
+          relationship and its absence shows nothing.
+      - source: ti_political_finance_standards
+        stance: limits
+        because: >-
+          A level playing field is one of the six principles, but the
+          principle speaks to the arrangement rather than to any test
+          for it. Nothing here establishes that a shared vendor breaches
+          it.
+
 # Planned but not built. Recorded with their grounding so the decision
 # is informed before the work starts.
 proposed:
@@ -234,30 +280,6 @@ proposed:
 
 
 
-  common_vendor_overlap:
-    status: SUPPORTED
-    note: >-
-      An independent-expenditure committee and the campaign it supports
-      paying the same vendor. Buildable by intersecting Schedule B
-      payees for both committees, which packed already retrieves.
-
-      Coordination is a legal conclusion resting on facts disclosure
-      cannot show, and a shared vendor is lawful where firewalled. The
-      output is an overlap set with amounts and dates.
-    citations:
-      - source: fec_murs
-        stance: supports
-        because: >-
-          "Expenditures-Coordinated" is a recurring enforcement subject
-          (28 of 600 sampled MURs), so the conduct is pursued rather
-          than merely theorised.
-      - source: oecd_lobbying_21c
-        stance: limits
-        because: >-
-          Indirect routes go unrecorded. A shared vendor is one
-          observable trace of a relationship that disclosure does not
-          otherwise capture, so overlap understates coordination and its
-          absence shows nothing.
 
   scam_pac_ratio:
     status: SUPPORTED

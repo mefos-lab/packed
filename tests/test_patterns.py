@@ -998,3 +998,196 @@ class TestDetectEmployerContributionClusters:
         r = await detect_employer_contribution_clusters(fec, employer="TESTCO")
         assert r.provenance["status"] == "SUPPORTED"
         assert any(c["source"] == "fec_murs" for c in r.provenance["citations"])
+
+
+# =============================================================================
+# detect_common_vendor_overlap tests
+# =============================================================================
+
+from packed.patterns import detect_common_vendor_overlap, _same_vendor
+
+
+class TestSameVendor:
+    """The matcher onoma alone gets wrong."""
+
+    def test_a_single_short_token_does_not_match_a_longer_name(self):
+        """'AT&T' normalises to the one token 'at', which onoma then
+        finds inside 'MILLER'S SUPPLIES AT WORK'. That false positive is
+        what the token-length guard exists for."""
+        assert not _same_vendor("AT&T", "MILLER'S SUPPLIES AT WORK")
+
+    def test_identical_names_match_however_short(self):
+        assert _same_vendor("AT&T", "AT&T")
+        assert _same_vendor("LEXISNEXIS", "LEXISNEXIS")
+
+    @pytest.mark.parametrize("a,b", [
+        ("MISSION CONTROL", "MISSION CONTROL INC"),
+        ("UBER", "UBER TECHNOLOGIES INC"),
+        ("GPS IMPACT", "GPS IMPACT LLC"),
+    ])
+    def test_entity_suffixes_do_not_prevent_a_match(self, a, b):
+        assert _same_vendor(a, b)
+
+    def test_unrelated_vendors_do_not_match(self):
+        assert not _same_vendor("MISSION CONTROL INC", "AMALGAMATED BANK")
+
+    def test_empty_names_never_match(self):
+        assert not _same_vendor("", "")
+        assert not _same_vendor("MISSION CONTROL", "")
+
+
+def _sched_e(payee, amount, committee_id="C0IE001", committee_name="OUTSIDE GROUP"):
+    return {
+        "payee_name": payee,
+        "expenditure_amount": amount,
+        "committee_id": committee_id,
+        "committee": {"name": committee_name},
+        "support_oppose_indicator": "S",
+    }
+
+
+def _sched_b_row(recipient, amount):
+    return {"recipient_name": recipient, "disbursement_amount": amount}
+
+
+class _VendorTransport(httpx.AsyncBaseTransport):
+    """Routes Schedule B by committee_id.
+
+    The shared MockTransport matches on path alone, which would hand the
+    campaign and the outside spender the same disbursements — every
+    payee would then match itself and the pattern would look like it
+    worked when it had found nothing.
+    """
+
+    def __init__(self, committees, sched_e_rows, campaign_b, outside_b):
+        self.committees = committees
+        self.sched_e_rows = sched_e_rows
+        self.campaign_b = campaign_b
+        self.outside_b = outside_b
+
+    async def handle_async_request(self, request):
+        path = request.url.path
+        params = dict(request.url.params)
+        page = {"last_indexes": {}}
+        if "committees" in path:
+            return httpx.Response(200, json={"results": self.committees})
+        if "schedule_e" in path:
+            return httpx.Response(200, json={
+                "results": self.sched_e_rows, "pagination": page})
+        if "schedule_b" in path:
+            rows = (self.campaign_b if params.get("committee_id") == "C0CAMP01"
+                    else self.outside_b)
+            return httpx.Response(200, json={"results": rows, "pagination": page})
+        return httpx.Response(404, json={"error": "not found"})
+
+
+def _make_vendor_fec(candidate_committees, sched_e_rows, campaign_b, outside_b=None):
+    fec = OpenFECClient(api_key="test_key")
+    fec._client = httpx.AsyncClient(
+        base_url="https://api.open.fec.gov/v1",
+        transport=_VendorTransport(
+            candidate_committees, sched_e_rows, campaign_b, outside_b or [],
+        ),
+    )
+    return fec
+
+
+_CAMPAIGN = [{"committee_id": "C0CAMP01", "name": "TEST FOR SENATE", "designation": "P"}]
+
+
+class TestDetectCommonVendorOverlap:
+    @pytest.mark.asyncio
+    async def test_finds_a_vendor_on_both_sides(self):
+        fec = _make_vendor_fec(
+            _CAMPAIGN,
+            [_sched_e("MISSION CONTROL INC", 500000.0)],
+            [_sched_b_row("MISSION CONTROL", 9250.0)],
+        )
+        r = await detect_common_vendor_overlap(fec, candidate_id="S0TEST01")
+        assert r.status == "ACTIVE"
+        assert len(r.findings) == 1
+        vendors = r.findings[0]["shared_vendors"]
+        assert len(vendors) == 1
+        assert vendors[0]["campaign_amount"] == 9250.0
+        assert vendors[0]["outside_amount"] > 0
+
+    @pytest.mark.asyncio
+    async def test_the_outside_media_buys_come_from_schedule_e(self):
+        """An IE committee reports media buys on E and carries almost
+        nothing on B, so a Schedule-B-only comparison finds nothing.
+        Here the vendor exists ONLY on the outside side's Schedule E."""
+        fec = _make_vendor_fec(
+            _CAMPAIGN,
+            [_sched_e("TARGETED PLATFORM MEDIA LLC", 289095.0)],
+            [_sched_b_row("TARGETED PLATFORM MEDIA", 5000.0)],
+        )
+        r = await detect_common_vendor_overlap(fec, candidate_id="S0TEST01")
+        assert r.findings
+        assert r.findings[0]["shared_vendors"][0]["outside_amount"] >= 289095.0
+
+    @pytest.mark.asyncio
+    async def test_no_overlap_reports_no_findings(self):
+        fec = _make_vendor_fec(
+            _CAMPAIGN,
+            [_sched_e("SOME MEDIA BUYER", 500000.0)],
+            [_sched_b_row("A DIFFERENT PRINTER", 9250.0)],
+        )
+        r = await detect_common_vendor_overlap(fec, candidate_id="S0TEST01")
+        assert r.findings == []
+
+    @pytest.mark.asyncio
+    async def test_vendors_below_the_floor_on_both_sides_are_ignored(self):
+        fec = _make_vendor_fec(
+            _CAMPAIGN,
+            [_sched_e("THE UPS STORE", 100.0)],
+            [_sched_b_row("THE UPS STORE", 108.0)],
+        )
+        r = await detect_common_vendor_overlap(fec, candidate_id="S0TEST01")
+        assert r.findings == []
+
+    @pytest.mark.asyncio
+    async def test_a_large_amount_on_one_side_alone_still_counts(self):
+        """A consultancy billing the outside group heavily and the
+        campaign trivially is exactly the case of interest."""
+        fec = _make_vendor_fec(
+            _CAMPAIGN,
+            [_sched_e("MISSION CONTROL INC", 1389589.0)],
+            [_sched_b_row("MISSION CONTROL", 50.0)],
+        )
+        r = await detect_common_vendor_overlap(fec, candidate_id="S0TEST01")
+        assert r.findings[0]["shared_vendors"][0]["campaign_amount"] == 50.0
+
+    @pytest.mark.asyncio
+    async def test_shares_are_labelled_as_sampled(self):
+        """Pagination is capped, so the denominator is what was read,
+        not the committee's full ledger. The field name has to say so."""
+        fec = _make_vendor_fec(
+            _CAMPAIGN,
+            [_sched_e("MISSION CONTROL INC", 500000.0)],
+            [_sched_b_row("MISSION CONTROL", 9250.0)],
+        )
+        r = await detect_common_vendor_overlap(fec, candidate_id="S0TEST01")
+        v = r.findings[0]["shared_vendors"][0]
+        assert "share_of_sampled_outside_spending" in v
+        assert "share_of_sampled_campaign_spending" in v
+        assert "sampled_outside_spending" in r.findings[0]
+
+    @pytest.mark.asyncio
+    async def test_a_candidate_with_no_authorized_committee_is_not_an_error(self):
+        fec = _make_vendor_fec([], [], [])
+        r = await detect_common_vendor_overlap(fec, candidate_id="S0TEST01")
+        assert r.status == "ACTIVE"
+        assert r.findings == []
+
+    @pytest.mark.asyncio
+    async def test_always_warns_that_sharing_is_not_coordination(self):
+        fec = _make_vendor_fec(_CAMPAIGN, [], [])
+        r = await detect_common_vendor_overlap(fec, candidate_id="S0TEST01")
+        assert any("not coordination" in w for w in r.warnings)
+        assert any("Commodity vendors" in w for w in r.warnings)
+
+    @pytest.mark.asyncio
+    async def test_carries_provenance(self):
+        fec = _make_vendor_fec(_CAMPAIGN, [], [])
+        r = await detect_common_vendor_overlap(fec, candidate_id="S0TEST01")
+        assert r.provenance["status"] == "SUPPORTED"

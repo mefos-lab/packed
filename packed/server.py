@@ -695,6 +695,32 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="pattern_common_vendor_overlap",
+            description=(
+                "Find vendors paid by both a candidate's own campaign "
+                "and an outside group spending independently to elect "
+                "them. Compares the campaign's Schedule B against the "
+                "spender's Schedule E and B — an IE committee reports "
+                "its media buys on E, so a disbursements-only "
+                "comparison finds almost nothing. Sharing a vendor is "
+                "lawful and coordination is a legal conclusion no "
+                "filing discloses, so this reports the overlap and what "
+                "each side paid. Read the share fields: commodity "
+                "vendors appear in nearly every pair and mean nothing."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "string", "description": "FEC candidate ID, e.g. 'S6MI00426'"},
+                    "two_year_transaction_period": {"type": "integer", "description": "Election cycle, e.g. 2026 (optional)"},
+                    "support_oppose_indicator": {"type": "string", "enum": ["S", "O"], "description": "Outside spending supporting (S) or opposing (O) the candidate (optional, default S)"},
+                    "min_amount": {"type": "number", "description": "Ignore vendors paid less than this by both sides (optional, default 1000)"},
+                    "max_ie_committees": {"type": "integer", "description": "How many top outside spenders to examine (optional, default 5)"},
+                },
+                "required": ["candidate_id"],
+            },
+        ),
+        Tool(
             name="pattern_provenance",
             description=(
                 "What the literature says about the detection patterns. "
@@ -754,6 +780,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     if name == "pattern_revolving_door" and lda_client is None:
         return _not_configured("LDA", "LDA_API_KEY")
     if name == "pattern_employer_contribution_clusters" and fec_client is None:
+        return _not_configured("OpenFEC", "OPENFEC_API_KEY")
+    if name == "pattern_common_vendor_overlap" and fec_client is None:
         return _not_configured("OpenFEC", "OPENFEC_API_KEY")
 
     tracker = ServiceTracker()
@@ -1081,6 +1109,17 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 min_donors=arguments.get("min_donors", patterns_module.EMPLOYER_CLUSTER_MIN_DONORS),
                 min_amount=arguments.get("min_amount", patterns_module.EMPLOYER_CLUSTER_MIN_AMOUNT),
                 include_pass_through=arguments.get("include_pass_through", False),
+            )
+            result = _pattern_result(match)
+
+        elif name == "pattern_common_vendor_overlap":
+            match = await patterns_module.detect_common_vendor_overlap(
+                fec_client,
+                candidate_id=arguments["candidate_id"],
+                two_year_transaction_period=arguments.get("two_year_transaction_period"),
+                support_oppose_indicator=arguments.get("support_oppose_indicator", "S"),
+                min_amount=arguments.get("min_amount", patterns_module.VENDOR_OVERLAP_MIN_AMOUNT),
+                max_ie_committees=arguments.get("max_ie_committees", patterns_module.VENDOR_OVERLAP_MAX_IE_COMMITTEES),
             )
             result = _pattern_result(match)
 
