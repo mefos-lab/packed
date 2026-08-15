@@ -535,14 +535,54 @@ Remaining work on this:
       related surprise that `require_strong` rejected a one-word organisation
       compared against itself.
 
-- [ ] **Remove `_same_vendor`'s token-length guard once onoma ships the fix.**
-      It is now *actively wrong*, not merely redundant: requiring a shared
-      distinctive token of length >= 4 rejects `BP` against `BP AMERICA` and
-      `3M` against `3M COMPANY`. It was the right expedient while onoma matched
-      "AT&T" to "MILLER'S SUPPLIES AT WORK" and is the wrong rule now. Blocked
-      on the onoma PR merging and a version to pin against — `onoma>=0.1.0`
-      does not express the requirement.
-- [ ] Build `scam_pac_ratio` — the last mined candidate with a clean data path.
+- [x] **`_same_vendor`'s token-length guard removed** (2026-08-15), now that
+      onoma treats prepositions as generic. It had become actively wrong rather
+      than merely redundant — requiring a shared token of >= 4 characters
+      rejected `BP` against `BP AMERICA` and `3M` against `3M COMPANY`. Both
+      are now regression-tested here, alongside the AT&T case that started it.
+      Dependency declared as `onoma>=0.1.1`.
+
+- [ ] **The onoma dependency does not resolve.** Declared as a plain
+      requirement in both packed and sift, but onoma is not on any index:
+      `pip install "onoma>=0.1.1"` fails with "No matching distribution found"
+      in a clean environment (verified). It works locally only because onoma is
+      installed editable from a sibling checkout, so the README's
+      `pip install -e .` cannot work for anyone else. Two fixes: publish onoma,
+      or depend on it by URL (`onoma @ git+https://github.com/mefos-lab/onoma@<tag>`,
+      which needs a tag that does not yet exist). Publishing is deferred by
+      choice; until one of them happens, neither repo is installable.
+- [x] **`candidate_support_ratio` built and live-verified** (2026-08-15),
+      renamed from `scam_pac_ratio`.
+
+      **The grounding was a misattribution, and checking it is what caught
+      that.** The registry cited the FEC's "Fraudulent misrepresentation"
+      enforcement subject as evidence the conduct was pursued. The statute
+      behind that label is 52 USC 30124 — impersonating a candidate or party
+      while soliciting — which has nothing to do with a committee's spending
+      mix. The subject label had been read as though the colloquial phrase
+      "scam PAC" were a legal category. `fec_murs` is now cited as a **limit**
+      on this pattern rather than support for it, so the error stays recorded.
+      A note in `SOURCES.yaml` warns to check the statute behind any MUR
+      subject before treating the label as evidence.
+
+      **The FEC already computes the ratio.** `operating_expenditures_percent`
+      and `contributions_ie_and_party_expenditures_made_percent` are existing
+      fields, so they are surfaced rather than recalculated and a reader can
+      reconcile against the agency. What packed adds is the receipts floor and
+      the cycle-by-cycle view.
+
+      Live: Campaign for a Conservative Majority (a MUR respondent) 2020 —
+      $473,371 receipts, 12.85% to candidates, 87% operating, flagged. Club for
+      Growth runs 78–97% to candidates across four cycles and is not flagged.
+      The floor correctly excluded three periods for the first committee, where
+      receipts were four figures and the ratio meaningless.
+
+- [ ] Remaining mined candidates are all judged not worth building as
+      specified: `timing_correlation` and `foreign_national_contributions` are
+      CONTESTED, `dual_role` is closed in favour of `revolving_door`, and
+      `foreign_principal_lobbying` is grounded but sparse (3% of filings) and
+      would mostly document a data gap — FARA is the register that matters and
+      packed does not have it.
 - [ ] Retrofit remains partial: `lobbyist_contribution_corroboration` is
       genuinely ungrounded rather than merely unresearched. It rests on the two
       filing regimes being independent, which is a property of the regimes, not

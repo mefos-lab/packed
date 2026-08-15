@@ -253,11 +253,38 @@ are computed over the spending actually retrieved rather than a
 committee's full ledger, since pagination is capped — the field names
 say "sampled" so the denominator cannot be mistaken.
 
-Name matching is onoma's, with one guard. A vendor name that reduces to
-a single short token matches far too much: "AT&T" normalises to the
-token "at", which onoma then finds inside "MILLER'S SUPPLIES AT WORK".
-Requiring a shared token of real length forces such names to match
-exactly instead.
+Name matching is onoma's. It briefly carried a guard here, because
+onoma treated "at" as identifying and so matched "AT&T" to "MILLER'S
+SUPPLIES AT WORK". That was fixed upstream and the guard removed rather
+than kept — it also rejected "BP" against "BP AMERICA".
+
+Pattern 9: candidate_support_ratio. What share of a committee's
+spending reaches candidates and party committees, against what it
+spends running itself.
+
+Named for the measurement, not for "scam PAC", and that is a
+correction rather than a style choice. This was specified as
+scam_pac_ratio and grounded on the FEC's "Fraudulent misrepresentation"
+enforcement subject. The statute behind that label, 52 USC 30124,
+prohibits impersonating a candidate or party while soliciting — nothing
+to do with how a committee spends what it raises. The subject was read
+as though the colloquial phrase were a legal category. No law requires
+any particular ratio, so the pattern keeps the measurement and drops
+the accusation.
+
+A low share is lawful and frequently legitimate: an independent
+expenditure or issue-advocacy group is not meant to give to candidates,
+and a new committee spends before it gives. What the number answers is
+the narrow factual question of where a donor's money went, which a
+committee's name and its fundraising appeals do not reveal.
+
+The FEC computes both percentages itself, so they are surfaced rather
+than recalculated and a reader can reconcile against the agency's
+figure; where it reports none, a share of disbursements is computed
+here under a different field name so the two are never confused. What
+this adds is the receipts floor — without which a committee that raised
+a few thousand dollars reads as 100% overhead on one invoice — and the
+cycle-by-cycle view separating a young committee from a persistent one.
 """
 
 from __future__ import annotations
@@ -1599,12 +1626,6 @@ async def detect_employer_contribution_clusters(
     )
 
 
-# A vendor name reduced to one short token matches far too much: "AT&T"
-# normalises to the single token "at", which onoma then finds inside
-# "MILLER'S SUPPLIES AT WORK". Requiring a shared token of real length
-# forces those names to match exactly instead.
-VENDOR_TOKEN_MIN_LENGTH = 4
-
 VENDOR_OVERLAP_MIN_AMOUNT = 1000.0
 VENDOR_OVERLAP_MAX_PAGES = 6
 VENDOR_OVERLAP_MAX_IE_COMMITTEES = 5
@@ -1613,16 +1634,14 @@ VENDOR_OVERLAP_MAX_IE_COMMITTEES = 5
 def _same_vendor(a: str, b: str) -> bool:
     """Do two payee names refer to one vendor?
 
-    onoma decides, with a guard against its one failure mode here.
+    Delegates entirely to onoma. This briefly carried a rule requiring a
+    shared token of at least four characters, to stop "AT&T" matching
+    "MILLER'S SUPPLIES AT WORK" — onoma reduced that name to the single
+    token "at" and treated a preposition as identifying. Fixed upstream,
+    and the workaround had to go rather than stay: it also rejected "BP"
+    against "BP AMERICA", which is a match anyone would want.
     """
-    if not (a and b):
-        return False
-    if onoma.fold(a) == onoma.fold(b):
-        return True
-    if not onoma.same_org(a, b):
-        return False
-    shared = onoma.distinctive_tokens(a) & onoma.distinctive_tokens(b)
-    return any(len(t) >= VENDOR_TOKEN_MIN_LENGTH for t in shared)
+    return bool(a) and bool(b) and onoma.same_org(a, b)
 
 
 async def _collect_payees(
@@ -1884,5 +1903,162 @@ async def detect_common_vendor_overlap(
             "committee that is a sample rather than its full ledger, so "
             "read a share as relative weight within what was read, not "
             "as a fraction of everything the committee spent.",
+        ] + tracker.warnings,
+    )
+
+
+# A committee that raised almost nothing has a meaningless ratio: one
+# invoice makes overhead 100%. The floor is what stops a dormant or
+# newly-registered committee reading as a finding.
+SUPPORT_RATIO_MIN_RECEIPTS = 100_000.0
+SUPPORT_RATIO_LOW_THRESHOLD = 25.0
+
+
+async def detect_candidate_support_ratio(
+    fec_client: OpenFECClient,
+    committee_id: str | None = None,
+    committee_name: str | None = None,
+    cycle: int | None = None,
+    min_receipts: float = SUPPORT_RATIO_MIN_RECEIPTS,
+    low_support_threshold: float = SUPPORT_RATIO_LOW_THRESHOLD,
+) -> PatternMatch:
+    """How much of what a committee raises reaches candidates.
+
+    See the module docstring (Pattern 9) for why this is named for the
+    measurement rather than for "scam PAC", and for what the FEC does
+    and does not already give you.
+    """
+    tracker = ServiceTracker()
+
+    if not committee_id and not committee_name:
+        return PatternMatch(
+            pattern_name="candidate_support_ratio",
+            title="Share of Receipts Reaching Candidates",
+            risk_level="INFO",
+            status="ERROR",
+            description="Provide a committee_id or a committee_name.",
+            findings=[],
+            warnings=tracker.warnings,
+        )
+
+    if not committee_id:
+        found = await api_call(
+            tracker, "OpenFEC", "/committees/",
+            lambda: fec_client.search_committees(q=committee_name, per_page=5),
+        )
+        results = (found or {}).get("results") or []
+        if not results:
+            return PatternMatch(
+                pattern_name="candidate_support_ratio",
+                title="Share of Receipts Reaching Candidates",
+                risk_level="INFO",
+                status="ACTIVE",
+                description=f"No committee matched {committee_name!r}.",
+                findings=[],
+                stats={"committee_name": committee_name},
+                warnings=tracker.warnings,
+            )
+        committee_id = results[0]["committee_id"]
+        committee_name = results[0].get("name")
+
+    totals = await api_call(
+        tracker, "OpenFEC", f"/committee/{committee_id}/totals/",
+        lambda: fec_client.get_committee_totals(committee_id, cycle=cycle),
+    )
+    if totals is None:
+        return PatternMatch(
+            pattern_name="candidate_support_ratio",
+            title="Share of Receipts Reaching Candidates",
+            risk_level="INFO",
+            status="ERROR",
+            description="Could not fetch committee totals.",
+            findings=[],
+            warnings=tracker.warnings,
+        )
+
+    findings: list[dict[str, Any]] = []
+    below_floor: list[dict[str, Any]] = []
+
+    for row in (totals.get("results") or []):
+        receipts = float(row.get("receipts") or 0)
+        disbursements = float(row.get("disbursements") or 0)
+        to_candidates = float(row.get("fed_candidate_committee_contributions") or 0)
+        operating = float(row.get("operating_expenditures") or 0)
+        period = row.get("cycle")
+
+        entry = {
+            "cycle": period,
+            "receipts": round(receipts, 2),
+            "disbursements": round(disbursements, 2),
+            "to_candidate_committees": round(to_candidates, 2),
+            "operating_expenditures": round(operating, 2),
+            # The FEC computes both of these itself. They are surfaced
+            # rather than recomputed so a reader can reconcile against
+            # the agency's own figure instead of trusting arithmetic here.
+            "operating_share_reported": row.get("operating_expenditures_percent"),
+            "candidate_and_party_share_reported": row.get(
+                "contributions_ie_and_party_expenditures_made_percent"
+            ),
+            "share_of_disbursements_to_candidates": (
+                round(100 * to_candidates / disbursements, 2) if disbursements else None
+            ),
+        }
+
+        if receipts < min_receipts:
+            below_floor.append(entry)
+            continue
+
+        share = entry["candidate_and_party_share_reported"]
+        if share is None:
+            share = entry["share_of_disbursements_to_candidates"]
+        entry["low_support"] = share is not None and share < low_support_threshold
+        findings.append(entry)
+
+    findings.sort(key=lambda f: (f["cycle"] or 0), reverse=True)
+
+    return PatternMatch(
+        pattern_name="candidate_support_ratio",
+        title="Share of Receipts Reaching Candidates",
+        risk_level="INFO",
+        status="ACTIVE",
+        description=(
+            "Reports what share of a committee's spending reaches "
+            "candidates and party committees, against what it spends on "
+            "its own operations. A low share is lawful and can be "
+            "entirely legitimate — an issue-advocacy or independent "
+            "expenditure group is not supposed to be giving money to "
+            "candidates, and a young committee spends before it gives. "
+            "What the number answers is the narrow factual question of "
+            "where a donor's money went, which is not otherwise visible "
+            "from a committee's name or its fundraising appeals."
+        ),
+        findings=findings,
+        stats={
+            "committee_id": committee_id,
+            "committee_name": committee_name,
+            "cycle": cycle,
+            "min_receipts": min_receipts,
+            "low_support_threshold": low_support_threshold,
+            "periods_reported": len(findings),
+            "periods_below_receipts_floor": len(below_floor),
+            "below_floor": below_floor,
+        },
+        warnings=[
+            "A low share is not misconduct and not a 'scam PAC'. No law "
+            "requires a committee to spend a given proportion on "
+            "candidates, and independent-expenditure and issue groups "
+            "route money to advertising rather than to campaigns by "
+            "design.",
+            "Periods where receipts fall below the floor are reported "
+            "separately rather than scored, because a committee that "
+            "raised very little has a ratio driven by a single invoice.",
+            "The percentage fields are the FEC's own, surfaced rather "
+            "than recomputed. Where the agency reports none, a share of "
+            "disbursements is computed here and named differently so the "
+            "two are not confused.",
+            "Money reaching a candidate through an intermediary "
+            "committee is not counted as candidate support here. Trace "
+            "those with the leadership-PAC and joint-fundraising "
+            "patterns.",
         ] + tracker.warnings,
     )

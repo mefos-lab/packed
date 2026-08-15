@@ -237,6 +237,51 @@ patterns:
           for it. Nothing here establishes that a shared vendor breaches
           it.
 
+  candidate_support_ratio:
+    status: SUPPORTED
+    note: >-
+      What share of a committee's spending reaches candidates and party
+      committees, against what it spends on its own operations.
+
+      Renamed from scam_pac_ratio, and the reason is a correction worth
+      keeping. That entry cited the FEC's "Fraudulent misrepresentation"
+      enforcement subject as evidence the conduct was pursued. Checking
+      the statute behind that label — 52 USC 30124 — shows it prohibits
+      impersonating a candidate or party while soliciting, which is a
+      different thing entirely from a committee lawfully spending its
+      receipts on overhead. The subject was read as though the
+      colloquial phrase "scam PAC" were a legal category. It is not, and
+      no law requires any particular ratio.
+
+      So the pattern keeps the measurement and drops the accusation. A
+      low share is lawful and often legitimate: an independent
+      expenditure or issue-advocacy group is not meant to give money to
+      candidates, and a new committee spends before it gives.
+
+      The FEC already computes both percentages. They are surfaced
+      rather than recalculated, so a reader can reconcile against the
+      agency's own figure. What is added is the receipts floor, without
+      which a committee that raised a few thousand dollars reads as 100%
+      overhead on the strength of one invoice, and the cycle-by-cycle
+      view that distinguishes a young committee from a persistent one.
+    citations:
+      - source: ti_political_finance_standards
+        stance: supports
+        because: >-
+          Accountability is among the six principles. Whether money
+          solicited in a cause's name reaches candidates is the narrow
+          factual question that principle turns on, independent of
+          whether any rule was broken.
+      - source: fec_murs
+        stance: limits
+        because: >-
+          Cited here to record what the enforcement archive does *not*
+          support. Its "Fraudulent misrepresentation" subject covers
+          52 USC 30124, impersonating a candidate while soliciting — not
+          a committee's spending mix. Nothing in the archive makes a low
+          ratio actionable, and reading the subject label as though it
+          did was the error this entry corrects.
+
 # Planned but not built. Recorded with their grounding so the decision
 # is informed before the work starts.
 proposed:
@@ -281,31 +326,6 @@ proposed:
 
 
 
-  scam_pac_ratio:
-    status: SUPPORTED
-    note: >-
-      A committee raising substantially while disbursing little to
-      candidates or committees, the balance going to fundraising
-      vendors and overhead. Computable from totals packed already
-      pulls: receipts against the share of disbursements reaching
-      candidates.
-
-      A new committee, or one in an off-cycle year, legitimately shows a
-      low ratio, so the measure needs a floor on receipts and a full
-      cycle before it means anything.
-    citations:
-      - source: fec_murs
-        stance: supports
-        because: >-
-          "Fraudulent misrepresentation" appears as its own enforcement
-          subject (11 of 600 sampled MURs), distinguishing this from a
-          merely inefficient committee.
-      - source: ti_political_finance_standards
-        stance: supports
-        because: >-
-          Accountability is among the six principles; a committee
-          soliciting on a candidate's behalf while passing on little is
-          the accountability failure it describes.
 
   foreign_national_contributions:
     status: CONTESTED
