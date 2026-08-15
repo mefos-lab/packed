@@ -535,13 +535,22 @@ Remaining work on this:
       related surprise that `require_strong` rejected a one-word organisation
       compared against itself.
 
-- [ ] **Remove `_same_vendor`'s token-length guard once onoma ships the fix.**
-      It is now *actively wrong*, not merely redundant: requiring a shared
-      distinctive token of length >= 4 rejects `BP` against `BP AMERICA` and
-      `3M` against `3M COMPANY`. It was the right expedient while onoma matched
-      "AT&T" to "MILLER'S SUPPLIES AT WORK" and is the wrong rule now. Blocked
-      on the onoma PR merging and a version to pin against — `onoma>=0.1.0`
-      does not express the requirement.
+- [x] **`_same_vendor`'s token-length guard removed** (2026-08-15), now that
+      onoma treats prepositions as generic. It had become actively wrong rather
+      than merely redundant — requiring a shared token of >= 4 characters
+      rejected `BP` against `BP AMERICA` and `3M` against `3M COMPANY`. Both
+      are now regression-tested here, alongside the AT&T case that started it.
+      Dependency declared as `onoma>=0.1.1`.
+
+- [ ] **The onoma dependency does not resolve.** Declared as a plain
+      requirement in both packed and sift, but onoma is not on any index:
+      `pip install "onoma>=0.1.1"` fails with "No matching distribution found"
+      in a clean environment (verified). It works locally only because onoma is
+      installed editable from a sibling checkout, so the README's
+      `pip install -e .` cannot work for anyone else. Two fixes: publish onoma,
+      or depend on it by URL (`onoma @ git+https://github.com/mefos-lab/onoma@<tag>`,
+      which needs a tag that does not yet exist). Publishing is deferred by
+      choice; until one of them happens, neither repo is installable.
 - [ ] Build `scam_pac_ratio` — the last mined candidate with a clean data path.
 - [ ] Retrofit remains partial: `lobbyist_contribution_corroboration` is
       genuinely ungrounded rather than merely unresearched. It rests on the two

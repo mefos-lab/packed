@@ -1599,12 +1599,6 @@ async def detect_employer_contribution_clusters(
     )
 
 
-# A vendor name reduced to one short token matches far too much: "AT&T"
-# normalises to the single token "at", which onoma then finds inside
-# "MILLER'S SUPPLIES AT WORK". Requiring a shared token of real length
-# forces those names to match exactly instead.
-VENDOR_TOKEN_MIN_LENGTH = 4
-
 VENDOR_OVERLAP_MIN_AMOUNT = 1000.0
 VENDOR_OVERLAP_MAX_PAGES = 6
 VENDOR_OVERLAP_MAX_IE_COMMITTEES = 5
@@ -1613,16 +1607,14 @@ VENDOR_OVERLAP_MAX_IE_COMMITTEES = 5
 def _same_vendor(a: str, b: str) -> bool:
     """Do two payee names refer to one vendor?
 
-    onoma decides, with a guard against its one failure mode here.
+    Delegates entirely to onoma. This briefly carried a rule requiring a
+    shared token of at least four characters, to stop "AT&T" matching
+    "MILLER'S SUPPLIES AT WORK" — onoma reduced that name to the single
+    token "at" and treated a preposition as identifying. Fixed upstream,
+    and the workaround had to go rather than stay: it also rejected "BP"
+    against "BP AMERICA", which is a match anyone would want.
     """
-    if not (a and b):
-        return False
-    if onoma.fold(a) == onoma.fold(b):
-        return True
-    if not onoma.same_org(a, b):
-        return False
-    shared = onoma.distinctive_tokens(a) & onoma.distinctive_tokens(b)
-    return any(len(t) >= VENDOR_TOKEN_MIN_LENGTH for t in shared)
+    return bool(a) and bool(b) and onoma.same_org(a, b)
 
 
 async def _collect_payees(

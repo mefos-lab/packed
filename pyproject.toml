@@ -21,7 +21,7 @@ dependencies = [
     # Shared name normalization and matching. Extracted from the duplicated
     # implementations that had accumulated here and in sift; see the onoma
     # README for why it exists and what it deliberately does not decide.
-    "onoma>=0.1.0",
+    "onoma>=0.1.1",
 ]
 
 [tool.hatch.build.targets.wheel]

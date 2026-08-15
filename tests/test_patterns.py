@@ -1028,6 +1028,17 @@ class TestSameVendor:
     def test_entity_suffixes_do_not_prevent_a_match(self, a, b):
         assert _same_vendor(a, b)
 
+    @pytest.mark.parametrize("a,b", [
+        ("BP", "BP AMERICA"),
+        ("3M", "3M COMPANY"),
+    ])
+    def test_short_company_names_still_match(self, a, b):
+        """The AT&T false positive was worked around here by demanding a
+        shared token of four characters or more. That rule rejected
+        these, which is why it was removed once onoma stopped treating
+        prepositions as identifying."""
+        assert _same_vendor(a, b)
+
     def test_unrelated_vendors_do_not_match(self):
         assert not _same_vendor("MISSION CONTROL INC", "AMALGAMATED BANK")
 
