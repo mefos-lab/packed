@@ -105,25 +105,37 @@ class OpenFECClient:
         self,
         committee_id: str | None = None,
         contributor_name: str | None = None,
+        contributor_employer: str | None = None,
         two_year_transaction_period: int | None = None,
         min_amount: float | None = None,
         max_amount: float | None = None,
         per_page: int = 20,
+        last_index: str | None = None,
+        last_contribution_receipt_date: str | None = None,
     ) -> dict[str, Any]:
         """Search itemized individual contributions (Schedule A).
 
-        At least one of committee_id or contributor_name should be set
-        to keep results scoped — this endpoint covers a very large dataset.
+        At least one of committee_id, contributor_name or
+        contributor_employer should be set to keep results scoped — this
+        endpoint covers a very large dataset.
+
+        Schedule A pages by keyset, not by page number: a response's
+        ``pagination.last_indexes`` carries the two values to pass back
+        for the next page. Both must be sent together; sending only
+        ``last_index`` returns a 422.
         """
         resp = await self._client.get(
             "/schedules/schedule_a/",
             params=self._params(
                 committee_id=committee_id,
                 contributor_name=contributor_name,
+                contributor_employer=contributor_employer,
                 two_year_transaction_period=two_year_transaction_period,
                 min_amount=min_amount,
                 max_amount=max_amount,
                 per_page=per_page,
+                last_index=last_index,
+                last_contribution_receipt_date=last_contribution_receipt_date,
             ),
         )
         resp.raise_for_status()

@@ -842,3 +842,159 @@ class TestDetectRevolvingDoor:
         r = await detect_revolving_door(lda, cong, registrant_name="test firm")
         assert r.provenance is not None
         assert r.provenance["status"] == "SUPPORTED"
+
+
+# =============================================================================
+# detect_employer_contribution_clusters tests
+# =============================================================================
+
+from packed.patterns import detect_employer_contribution_clusters
+
+
+def _sched_a(name, amount, date, committee_name="TEST CAMPAIGN", committee_id="C0CAMP01"):
+    return {
+        "contributor_name": name,
+        "contributor_employer": "TESTCO",
+        "contribution_receipt_amount": amount,
+        "contribution_receipt_date": f"{date}T00:00:00",
+        "committee_id": committee_id,
+        "committee": {"name": committee_name},
+    }
+
+
+def _make_fec(rows):
+    fec = OpenFECClient(api_key="test_key")
+    fec._client = httpx.AsyncClient(
+        base_url="https://api.open.fec.gov/v1",
+        transport=MockTransport({"/schedules/schedule_a/": {"json": {
+            "results": rows, "pagination": {"last_indexes": {}},
+        }}}),
+    )
+    return fec
+
+
+class TestDetectEmployerContributionClusters:
+    @pytest.mark.asyncio
+    async def test_two_donors_same_day_is_a_cluster(self):
+        """The default is two, not three. Requiring three erased the
+        case this pattern is grounded in — MUR 8363 ran two at a time."""
+        fec = _make_fec([
+            _sched_a("MEIER, DAVID", 1000.0, "2023-02-13"),
+            _sched_a("SAUER, PETER", 1000.0, "2023-02-13"),
+        ])
+        r = await detect_employer_contribution_clusters(fec, employer="TESTCO")
+        assert r.status == "ACTIVE"
+        assert len(r.findings) == 1
+        assert r.findings[0]["donor_count"] == 2
+        assert r.findings[0]["amounts_identical"] is True
+
+    @pytest.mark.asyncio
+    async def test_identical_amounts_are_flagged_apart_from_varied_ones(self):
+        """Amount uniformity is the only discriminator available, so it
+        must not be buried in the donor list."""
+        fec = _make_fec([
+            _sched_a("A ONE", 1000.0, "2023-02-13"),
+            _sched_a("B TWO", 2500.0, "2023-02-13"),
+        ])
+        r = await detect_employer_contribution_clusters(fec, employer="TESTCO")
+        assert r.findings[0]["amounts_identical"] is False
+        assert r.stats["clusters_with_identical_amounts"] == 0
+
+    @pytest.mark.asyncio
+    async def test_one_donor_alone_is_not_a_cluster(self):
+        fec = _make_fec([_sched_a("SOLO PERSON", 2000.0, "2023-02-13")])
+        r = await detect_employer_contribution_clusters(fec, employer="TESTCO")
+        assert r.findings == []
+
+    @pytest.mark.asyncio
+    async def test_contributions_outside_the_window_do_not_cluster(self):
+        fec = _make_fec([
+            _sched_a("A ONE", 1000.0, "2023-02-13"),
+            _sched_a("B TWO", 1000.0, "2023-03-20"),
+        ])
+        r = await detect_employer_contribution_clusters(fec, employer="TESTCO")
+        assert r.findings == []
+
+    @pytest.mark.asyncio
+    async def test_different_recipients_do_not_cluster_together(self):
+        fec = _make_fec([
+            _sched_a("A ONE", 1000.0, "2023-02-13", "CAMPAIGN ONE", "C0AAA"),
+            _sched_a("B TWO", 1000.0, "2023-02-13", "CAMPAIGN TWO", "C0BBB"),
+        ])
+        r = await detect_employer_contribution_clusters(fec, employer="TESTCO")
+        assert r.findings == []
+
+    @pytest.mark.asyncio
+    async def test_pass_through_committees_are_excluded_by_default(self):
+        """Three quarters of one real employer's rows were ActBlue
+        recurring donations, which drowned the signal entirely."""
+        fec = _make_fec([
+            _sched_a("A ONE", 1000.0, "2023-02-13", "ACTBLUE", "C0ACT"),
+            _sched_a("B TWO", 1000.0, "2023-02-13", "ACTBLUE", "C0ACT"),
+        ])
+        r = await detect_employer_contribution_clusters(fec, employer="TESTCO")
+        assert r.findings == []
+        assert r.stats["pass_through_rows_excluded"] == 2
+
+        fec2 = _make_fec([
+            _sched_a("A ONE", 1000.0, "2023-02-13", "ACTBLUE", "C0ACT"),
+            _sched_a("B TWO", 1000.0, "2023-02-13", "ACTBLUE", "C0ACT"),
+        ])
+        r2 = await detect_employer_contribution_clusters(
+            fec2, employer="TESTCO", include_pass_through=True,
+        )
+        assert len(r2.findings) == 1
+
+    @pytest.mark.asyncio
+    async def test_small_donations_are_below_the_floor(self):
+        fec = _make_fec([
+            _sched_a("A ONE", 10.0, "2023-02-13"),
+            _sched_a("B TWO", 10.0, "2023-02-13"),
+        ])
+        r = await detect_employer_contribution_clusters(fec, employer="TESTCO")
+        assert r.findings == []
+        assert r.stats["below_floor_rows_excluded"] == 2
+
+    @pytest.mark.asyncio
+    async def test_a_cluster_is_reported_once_not_at_every_offset(self):
+        """A sliding window re-finds the same event from each starting
+        contribution, so one three-donor event would otherwise also be
+        reported as two separate two-donor events."""
+        fec = _make_fec([
+            _sched_a("A ONE", 2300.0, "2007-05-08"),
+            _sched_a("B TWO", 2300.0, "2007-05-08"),
+            _sched_a("C THREE", 2300.0, "2007-05-08"),
+        ])
+        r = await detect_employer_contribution_clusters(fec, employer="TESTCO")
+        assert len(r.findings) == 1
+        assert r.findings[0]["donor_count"] == 3
+
+    @pytest.mark.asyncio
+    async def test_recipient_concentration_counts_everything_not_just_clusters(self):
+        """The concentration view answers a different question and must
+        not inherit the cluster filters — only the pass-through rule."""
+        fec = _make_fec([
+            _sched_a("A ONE", 10.0, "2023-02-13"),
+            _sched_a("B TWO", 5000.0, "2021-01-05"),
+        ])
+        r = await detect_employer_contribution_clusters(fec, employer="TESTCO")
+        total = next(c for c in r.stats["recipient_concentration"]
+                     if c["recipient_committee_id"] == "C0CAMP01")
+        assert total["total_amount"] == 5010.0
+        assert total["donor_count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_always_warns_that_bundling_looks_the_same(self):
+        """The whole result is a lead. A reader must not be able to see
+        the findings without seeing that."""
+        fec = _make_fec([])
+        r = await detect_employer_contribution_clusters(fec, employer="TESTCO")
+        assert any("bundling" in w for w in r.warnings)
+        assert any("floor" in w for w in r.warnings)
+
+    @pytest.mark.asyncio
+    async def test_carries_provenance(self):
+        fec = _make_fec([])
+        r = await detect_employer_contribution_clusters(fec, employer="TESTCO")
+        assert r.provenance["status"] == "SUPPORTED"
+        assert any(c["source"] == "fec_murs" for c in r.provenance["citations"])

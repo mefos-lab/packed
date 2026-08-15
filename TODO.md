@@ -468,9 +468,39 @@ Remaining work on this:
       exactly one current entity; a phrase naming no chamber is reported
       ambiguous rather than assigned.
 
-- [ ] Build the remaining mined candidates. `conduit_contribution_cluster` is
-      the next best — Schedule A alone, no new source, and the strongest
-      enforcement grounding of the four left.
+- [x] **`employer_contribution_clusters` built and live-verified** (2026-08-15),
+      renamed from `conduit_contribution_cluster` before building: "conduit"
+      asserts the mechanism the data cannot establish.
+
+      **Verified against the case that grounds it.** MUR 8363 conciliated with
+      Calspan Corporation over contributions reimbursed with corporate funds.
+      The pattern's top cluster for that employer is four donors to McCollum for
+      Congress on 2022-06-03 — Meier, Sauer, Swanson and Rivers — comprising
+      every individual the matter names. It also surfaces Meier and Sauer giving
+      an identical $1,000 to Wicker for Senate on the same day.
+
+      **The first attempt found nothing, and both causes were assumptions
+      rather than measurements.** Worth recording because they were not obvious:
+
+      - Requiring 3+ donors erased the case entirely. The scheme ran **two at a
+        time**. `min_donors` now defaults to 2.
+      - Pass-through committees supplied **708 of 975 rows** for that employer,
+        almost all $10–$25 recurring ActBlue donations. They name the conduit as
+        recipient rather than the campaign, so they both drown the signal and
+        cannot be clustered meaningfully. Excluded by default.
+
+      Amount uniformity is the one discriminator available and is flagged
+      separately: a reimbursement is a fixed sum per person, colleagues giving
+      independently rarely match to the dollar. Suggestive, not decisive — the
+      description and warnings both state that lawful bundling is
+      indistinguishable and the output is a lead.
+
+      Required adding `contributor_employer` and Schedule A keyset pagination
+      (`last_index` + `last_contribution_receipt_date`, which must be sent
+      together or the API 422s) to the OpenFEC client.
+
+- [ ] Build the remaining mined candidates: `common_vendor_overlap` next
+      (Schedule B both sides, no new source), then `scam_pac_ratio`.
 - [ ] Retrofit remains partial: `lobbyist_contribution_corroboration` is
       genuinely ungrounded rather than merely unresearched. It rests on the two
       filing regimes being independent, which is a property of the regimes, not

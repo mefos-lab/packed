@@ -145,6 +145,52 @@ patterns:
           text, so absence is not evidence of no prior service and
           coverage is a floor rather than a census.
 
+  employer_contribution_clusters:
+    status: SUPPORTED
+    note: >-
+      People sharing an employer who give to one recipient inside a
+      short window. Schedule A alone. Renamed from
+      conduit_contribution_cluster before being built: "conduit"
+      asserts the mechanism the pattern cannot establish, and the same
+      shape is produced by lawful workplace fundraising. The output is
+      a lead.
+
+      Verified against the case that grounds it. MUR 8363 conciliated
+      with Calspan Corporation over contributions reimbursed with
+      corporate funds; the pattern's top cluster for that employer is
+      four donors to one campaign on a single day, comprising every
+      individual the matter names. A first attempt found nothing,
+      because it required three donors and excluded nothing: the
+      scheme ran two at a time, and pass-through committees supplied
+      roughly three quarters of the rows as small recurring donations.
+      Both are now design parameters rather than assumptions.
+
+      Clusters where every donor gave an identical amount are flagged
+      separately. A reimbursement is a fixed sum per person; colleagues
+      giving independently rarely match to the dollar. That flag is the
+      closest thing to a discriminator available here, and it is
+      suggestive rather than decisive.
+    citations:
+      - source: fec_murs
+        stance: supports
+        because: >-
+          "Contributions-In the name of another" is a standing
+          enforcement category and 52 USC 30122 among the most cited
+          statutes in dispositions. MUR 8363 is the shape exactly, and
+          its facts are recoverable from Schedule A.
+      - source: ti_political_finance_standards
+        stance: supports
+        because: >-
+          Clean money is one of the six principles. A contribution whose
+          true source is concealed is the case that principle addresses.
+      - source: oecd_lobbying_21c
+        stance: limits
+        because: >-
+          Notes that disclosure regimes fail to capture indirect routes.
+          Employer is self-reported free text and pass-through
+          committees hide the eventual recipient, so any cluster count
+          is a floor.
+
 # Planned but not built. Recorded with their grounding so the decision
 # is informed before the work starts.
 proposed:
@@ -187,37 +233,6 @@ proposed:
           in this implementation.
 
 
-  conduit_contribution_cluster:
-    status: SUPPORTED
-    note: >-
-      Contributors sharing an employer who give the same amount to the
-      same recipient on or near the same date — the shape of a
-      reimbursement scheme, in which a corporation funds contributions
-      made in employees' names. Buildable from Schedule A alone
-      (`contributor_employer`, `contribution_receipt_date`,
-      `contribution_receipt_amount`).
-
-      The hard limit is that lawful bundling produces a nearly identical
-      shape: a PAC solicitation drive at one employer also yields
-      same-employer, same-window, similar-amount clusters. This can
-      therefore only ever be a lead, never a finding. That is a reason
-      to report the shape and name the ambiguity, not a reason to skip
-      it.
-    citations:
-      - source: fec_murs
-        stance: supports
-        because: >-
-          "Contributions-In the name of another" is a standing
-          enforcement category (49 of 600 sampled MURs), and 52 USC
-          30122 is among the most cited statutes in dispositions (359
-          citations). MUR 8363 (Calspan Corporation, conciliated 2025,
-          $25,000) is the shape exactly: corporate funds reimbursing
-          named employee conduits.
-      - source: ti_political_finance_standards
-        stance: supports
-        because: >-
-          Clean money is one of the six principles. A contribution whose
-          true source is concealed is the case that principle addresses.
 
   common_vendor_overlap:
     status: SUPPORTED
