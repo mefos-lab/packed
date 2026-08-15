@@ -527,10 +527,21 @@ Remaining work on this:
       full ledger, because pagination is capped. Field names say `sampled` so
       the denominator cannot be misread.
 
-- [ ] **Fix the onoma single-short-token defect upstream** and drop packed's
-      local guard once it lands. The guard belongs in the shared library: any
-      caller matching organisation names hits this, and sift matches company
-      names throughout.
+- [x] **onoma single-short-token defect fixed upstream** (mefos-lab/onoma,
+      branch `function-words`). `GENERIC_ORG_TOKENS` was missing prepositions,
+      so "AT&T" reduced to the distinctive token "at"; and because comparison
+      scores overlap against the shorter name, a one-token name scored 1.0
+      against anything containing that word. Fixed there, along with the
+      related surprise that `require_strong` rejected a one-word organisation
+      compared against itself.
+
+- [ ] **Remove `_same_vendor`'s token-length guard once onoma ships the fix.**
+      It is now *actively wrong*, not merely redundant: requiring a shared
+      distinctive token of length >= 4 rejects `BP` against `BP AMERICA` and
+      `3M` against `3M COMPANY`. It was the right expedient while onoma matched
+      "AT&T" to "MILLER'S SUPPLIES AT WORK" and is the wrong rule now. Blocked
+      on the onoma PR merging and a version to pin against — `onoma>=0.1.0`
+      does not express the requirement.
 - [ ] Build `scam_pac_ratio` — the last mined candidate with a clean data path.
 - [ ] Retrofit remains partial: `lobbyist_contribution_corroboration` is
       genuinely ungrounded rather than merely unresearched. It rests on the two
