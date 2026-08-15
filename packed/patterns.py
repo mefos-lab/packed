@@ -153,9 +153,10 @@ not a transfer to a committee.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from typing import Any
+
+import onoma
 
 from .lda_client import LDAClient
 from .openfec_client import OpenFECClient
@@ -164,16 +165,7 @@ from .errors import ServiceTracker, api_call
 
 AMOUNT_TOLERANCE = 1.00  # dollars
 DATE_WINDOW_DAYS = 60
-NAME_OVERLAP_THRESHOLD = 0.6
 FEC_LOOKUP_PAGE_SIZE = 100  # a single contributor can easily exceed the default 20/page
-
-# Generic words that shouldn't count as matching evidence on their own —
-# "COMMITTEE" or "PAC" alone overlapping proves nothing about identity.
-_GENERIC_COMMITTEE_WORDS = {
-    "for", "of", "the", "and", "inc", "llc", "committee", "pac",
-    "fund", "trust", "victory", "political", "action",
-}
-
 
 @dataclass
 class PatternMatch:
@@ -187,34 +179,22 @@ class PatternMatch:
     warnings: list[str] = field(default_factory=list)
 
 
-def _normalize(name: str | None) -> str:
-    if not name:
-        return ""
-    return re.sub(r"[^a-z0-9 ]", "", name.lower()).strip()
+def _committee_names_match(a: str | None, b: str | None) -> bool:
+    """Do two committee names plausibly refer to the same committee?
 
+    Delegated to onoma, which handles the political entity vocabulary
+    (PAC, political action committee, victory fund) and the distinction
+    between identifying words and filler — sharing "for" and a surname
+    is not evidence.
 
-def _names_roughly_match(a: str | None, b: str | None) -> bool:
-    """Loose name match for committee/PAC names that get abbreviated,
-    expanded, or reworded across filing systems (e.g. "ARKANSAS
-    LEADERSHIP PAC" vs "ARKANSAS FOR LEADERSHIP POLITICAL ACTION
-    COMMITTEE (ARKPAC)"). Ratio is computed against the shorter name
-    so an abbreviated form isn't unfairly penalized for the longer
-    name's extra words, and at least one shared word must be
-    non-generic so "COMMITTEE"/"PAC" overlap alone doesn't count.
+    Note what this cannot decide: a candidate's joint fundraising
+    committee and their principal campaign committee share a surname and
+    nothing else distinctive, which is structurally identical to a
+    genuine abbreviation match. onoma reports that as a weak match
+    rather than pretending to separate them. Callers here corroborate
+    with amount and date, which is what makes the weak case usable.
     """
-    na, nb = _normalize(a), _normalize(b)
-    if not na or not nb:
-        return False
-    if na == nb:
-        return True
-    words_a, words_b = set(na.split()), set(nb.split())
-    if not words_a or not words_b:
-        return False
-    shared = words_a & words_b
-    if not shared or shared <= _GENERIC_COMMITTEE_WORDS:
-        return False
-    overlap = len(shared) / min(len(words_a), len(words_b))
-    return overlap >= NAME_OVERLAP_THRESHOLD
+    return onoma.same_org(a or "", b or "")
 
 
 def _contributor_name(filing: dict[str, Any]) -> str | None:
@@ -261,7 +241,7 @@ def _find_fec_match(
     for rec in fec_results:
         committee = rec.get("committee") or {}
         committee_name = committee.get("name") or rec.get("committee_name")
-        if not _names_roughly_match(payee_name, committee_name):
+        if not _committee_names_match(payee_name, committee_name):
             continue
 
         rec_amount = rec.get("contribution_receipt_amount")
