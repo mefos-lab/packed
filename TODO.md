@@ -345,53 +345,41 @@ the same way: access and attention, not vote-buying.
   equivalent to FATF's case typologies. Worth mining for circumvention patterns
   that actually got prosecuted rather than theorised.
 
-### Suggested approach — a registry, not a fixed bibliography
+### ~~Suggested approach — a registry, not a fixed bibliography~~ ✓ built
 
-The list above is a starting set, not the model. New works will keep appearing —
-a revised OECD recommendation, a new empirical study, a fresh enforcement
-matter — and adding one must be cheap and additive, never a rewrite. Design for
-that from the start:
+Implemented as `patterns/SOURCES.yaml` + `patterns/PATTERNS.yaml`, loaded by
+`packed/provenance.py`, surfaced by the `pattern_provenance` MCP tool, and
+attached to every `PatternMatch` via a `provenance` property.
 
-- [ ] **A source registry with stable keys.** `patterns/SOURCES.yaml`, one entry
-      per work: key, full citation, URL, publisher, kind (international standard
-      / empirical study / enforcement case / investigative methodology), and the
-      year of the edition consulted. Patterns cite keys, never inline citations,
-      so a source can be revised in one place. sift keeps its list in a comment
-      header, which does not survive growth — improve on it here.
-- [ ] **Many-to-many, and additive.** A pattern cites several sources; a source
-      supports several patterns. Adding a work means appending a registry entry
-      and, where relevant, a key to existing patterns — never editing what is
-      already there.
-- [ ] **Record what a source does to a pattern, not just that it exists.** Each
-      citation carries a stance: `supports`, `limits`, or `contradicts`. This is
-      the part most bibliographies get wrong, and it matters here — Hall &
-      Wayman *supports* the committee-seat framing of patterns 4 and 5 while
-      *contradicting* a votes-based timing pattern. One work, opposite
-      implications. A flat "sources" list cannot express that and would let a
-      citation be read as blanket endorsement.
-- [ ] **Let new evidence move a pattern's status.** Adopt sift's
-      PROPOSED/CONFIRMED/ESTABLISHED lifecycle, but make status a function of
-      what currently cites it. A pattern should be able to strengthen when
-      corroborating work lands — and be demoted or retired when a source
-      undercuts it. Record the demotion rather than deleting the pattern.
-- [ ] **Keep a "considered and rejected" section in the registry.** A work
-      evaluated and found unsuitable is worth recording so it is not
-      re-evaluated later. Soundex in `MEFOS_META_PLAN.md` is the precedent.
+What shipped:
 
-Then the actual work:
+- **Keyed registry.** Sources have stable keys; patterns cite keys. Adding a
+  work is appending an entry — no edits to existing patterns.
+- **Stances.** Every citation is `supports`, `limits` or `contradicts`. This is
+  the part a flat source list cannot express, and it is load-bearing here:
+  Hall & Wayman supports the committee-seat framing of patterns 4 and 5 and
+  contradicts a votes-based timing pattern. A test asserts one work appears on
+  both sides, so the capability cannot regress unnoticed.
+- **Status derived from citations.** PROPOSED / SUPPORTED / CONTESTED, with a
+  test that status matches what actually cites the pattern — otherwise the two
+  drift and the registry starts lying.
+- **Uncited is visible.** `lobbyist_contribution_corroboration` reports
+  PROPOSED with zero citations rather than implying grounding it does not have.
+- **Rejected works recorded**, with reasoning: Soundex, and ProPublica's
+  defunct Congress API.
+- **`validate()`** catches the failure mode every keyed registry has — a
+  citation pointing at a renamed or missing source, which raises nothing on its
+  own.
 
-- [ ] Retrofit the five existing patterns with provenance where the literature
-      supports them, and mark honestly where it does not. An uncited pattern
-      should be visibly uncited, not silently assumed grounded.
-- [ ] Mine the registry for patterns not yet thought of — the point of the
-      exercise is the ones we would not invent unaided.
-- [ ] Carry the framing through: legality and abuse are different axes. FATF
-      describes conduct that is *illegal*; nearly everything packed detects is
-      *lawful*, and that is the substance rather than a caveat. The most
-      consequential influence operations are lawful by construction, because
-      those who benefit from the rules also write them — a joint fundraising
-      committee lets one donor exceed any single limit while complying with all
-      of them. Patterns should describe structure and concentration and be
-      readable as such; the literature supports "this is where influence
-      operates", never "this is a violation." See the README's "What it is
-      looking for" section, which states this as the tool's purpose.
+Remaining work on this:
+
+- [ ] Mine the registry sources for patterns not yet thought of. The entries so
+      far were found by asking what grounds the patterns that already exist,
+      which is the easier direction and not the valuable one.
+- [ ] FEC enforcement matters (MURs) are listed as a source worth adding but
+      not yet in the registry — the nearest equivalent to FATF's case
+      typologies, describing schemes that were actually prosecuted.
+- [ ] Retrofit remains partial: `lobbyist_contribution_corroboration` is
+      genuinely ungrounded rather than merely unresearched. It rests on the two
+      filing regimes being independent, which is a property of the regimes, not
+      a claim the influence literature speaks to.

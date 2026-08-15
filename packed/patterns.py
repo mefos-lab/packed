@@ -162,6 +162,7 @@ from .lda_client import LDAClient
 from .openfec_client import OpenFECClient
 from .congress_legislators_client import CongressLegislatorsClient
 from .errors import ServiceTracker, api_call
+from . import provenance as _provenance
 
 AMOUNT_TOLERANCE = 1.00  # dollars
 DATE_WINDOW_DAYS = 60
@@ -177,6 +178,17 @@ class PatternMatch:
     findings: list[dict[str, Any]]
     stats: dict[str, Any] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+
+    @property
+    def provenance(self) -> dict[str, Any] | None:
+        """What the literature says about this pattern.
+
+        Attached to the result rather than left to a separate lookup, so
+        a finding travels with its grounding — including the absence of
+        grounding, which is itself worth reporting.
+        """
+        p = _provenance.for_pattern(self.pattern_name)
+        return p.to_dict() if p else None
 
 
 def _committee_names_match(a: str | None, b: str | None) -> bool:

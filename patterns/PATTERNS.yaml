@@ -1,0 +1,141 @@
+# What the literature says about each detection pattern.
+#
+# Every citation carries a `stance`, because a work can do opposite
+# things to two patterns and a flat source list cannot express that:
+#
+#   supports    — the work is evidence the pattern targets something real
+#   limits      — the work bounds what the pattern can be read to show
+#   contradicts — the work is evidence against the pattern's premise
+#
+# `status` reflects what currently cites the pattern, and can move as
+# sources are added:
+#
+#   PROPOSED    — reasoned from the data, no external grounding yet
+#   SUPPORTED   — at least one work supports it, none contradict
+#   CONTESTED   — a work contradicts it; read the citation before relying on it
+#
+# A pattern with no citations is not thereby wrong. It is ungrounded,
+# which is a different and honest thing to report.
+
+patterns:
+
+  lobbyist_contribution_corroboration:
+    status: PROPOSED
+    note: >-
+      Cross-source corroboration of a disclosed fact. Rests on the two
+      filing regimes being independent rather than on any claim about
+      influence, so the influence literature neither supports nor
+      undercuts it.
+    citations: []
+
+  leadership_pac_transfers:
+    status: SUPPORTED
+    citations:
+      - source: hall_wayman_1990
+        stance: supports
+        because: >-
+          Locates contribution effects in committee work rather than
+          floor votes, which is what makes tracing money to specific
+          members worth doing at all.
+      - source: oecd_lobbying_21c
+        stance: limits
+        because: >-
+          Notes that disclosure regimes routinely fail to capture
+          indirect routes. A leadership PAC is such a route, so what
+          this pattern traces is a lower bound.
+
+  jfc_obscuring:
+    status: SUPPORTED
+    citations:
+      - source: ti_political_finance_standards
+        stance: supports
+        because: >-
+          Names a level playing field and clean money as principles a
+          finance regime should uphold. A structure letting one donor
+          exceed any single participant's limit is squarely the case
+          those principles address.
+      - source: idea_lobbying_registers_2024
+        stance: limits
+        because: >-
+          Comparative work on what registers capture. The split is
+          disclosed but distributed across filings, so absence of an
+          aggregate view is a reporting artefact, not absence of the
+          relationship.
+
+  lobbying_money_to_committee_seats:
+    status: SUPPORTED
+    citations:
+      - source: hall_wayman_1990
+        stance: supports
+        because: >-
+          The committee-seat framing is the paper's central finding:
+          effects appear in committee, on participation. Aggregating a
+          funder's giving by recipients' committee seats targets exactly
+          that.
+      - source: kalla_broockman_2016
+        stance: supports
+        because: >-
+          Contributions buy access. Access is exercised through the
+          committees a member sits on.
+      - source: oecd_lobbying_principles
+        stance: limits
+        because: >-
+          Treats lobbying transparency as the disclosure of who seeks to
+          influence whom. This pattern shows where a firm's money lands,
+          not what it lobbied for — LDA records the chamber, never the
+          committee.
+
+  industry_concentration:
+    status: SUPPORTED
+    citations:
+      - source: hall_wayman_1990
+        stance: supports
+        because: >-
+          Same basis as the lobbying-side pattern: committee
+          participation is where money is measurably associated with
+          legislative behaviour.
+      - source: oecd_lobbying_21c
+        stance: limits
+        because: >-
+          Indirect routes go unrecorded. Money reaching members through
+          party committees is reported here as unattributed precisely
+          because this limit is real.
+
+# Planned but not built. Recorded with their grounding so the decision
+# is informed before the work starts.
+proposed:
+
+  timing_correlation:
+    status: CONTESTED
+    note: >-
+      Correlating contribution timing against roll-call votes. Not
+      built, and the literature is a reason not to.
+    citations:
+      - source: hall_wayman_1990
+        stance: contradicts
+        because: >-
+          Systematic research on contributions and floor voting provides
+          little supporting evidence — which is the paper's own starting
+          point and the reason it looks at committee participation
+          instead. A votes-based pattern would rest on the weakest link
+          in the field.
+      - source: kalla_broockman_2016
+        stance: contradicts
+        because: >-
+          Finds contributions buy access, not votes. Points away from a
+          vote-outcome framing.
+
+  dual_role:
+    status: PROPOSED
+    note: >-
+      A lobbyist for a client who also funds a member sitting on a
+      committee that client lobbies before. Not buildable as specified:
+      LDA records the chamber lobbied, never the committee. Retained
+      because the framing is sound even though the data is absent.
+    citations:
+      - source: idea_lobbying_registers_2024
+        stance: limits
+        because: >-
+          Comparative analysis of register coverage. The missing
+          committee-level field is a known regime gap, not an oversight
+          in this implementation.

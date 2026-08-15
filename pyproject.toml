@@ -26,6 +26,11 @@ dependencies = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["packed"]
+# The pattern provenance registry lives outside the package directory so
+# it reads as project data rather than code, but it is loaded at runtime
+# by packed/provenance.py — an installed wheel without it raises on the
+# first PatternMatch. Ship it.
+force-include = { "patterns" = "packed/patterns" }
 
 [project.scripts]
 packed = "packed.server:main"

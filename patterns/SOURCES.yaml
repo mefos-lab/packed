@@ -1,0 +1,128 @@
+# Source registry for packed's detection patterns.
+#
+# Patterns cite entries here by key. Adding a work means appending an
+# entry and, where relevant, a citation in PATTERNS.yaml — never editing
+# what is already there. New works keep appearing, so this has to be
+# cheap and additive.
+#
+# `kind` values:
+#   standard      — an international or institutional standard
+#   empirical     — a peer-reviewed study with a measured result
+#   comparative   — cross-jurisdiction survey or regime analysis
+#   enforcement   — documented cases brought by a regulator
+#
+# `verified` records whether the bibliographic details were checked
+# against the publisher, as opposed to recalled. Unverified entries are
+# usable but should be confirmed before being quoted in an artifact.
+
+sources:
+
+  hall_wayman_1990:
+    citation: >-
+      Hall, R. L. and Wayman, F. W., "Buying Time: Moneyed Interests and
+      the Mobilization of Bias in Congressional Committees",
+      American Political Science Review 84(3): 797-820.
+    year: 1990
+    kind: empirical
+    publisher: American Political Science Review
+    url: https://www.cambridge.org/core/journals/american-political-science-review/article/abs/buying-time-moneyed-interests-and-the-mobilization-of-bias-in-congressional-committees/77348AABA9B5E7A9935429752F0518D3
+    verified: true
+    finding: >-
+      Contribution effects appear in committee rather than on the floor,
+      and what shifts is legislators' participation and effort rather
+      than their votes. Contributions are described as mobilising
+      support and demobilising opposition.
+
+  kalla_broockman_2016:
+    citation: >-
+      Kalla, J. L. and Broockman, D. E., "Campaign Contributions
+      Facilitate Access to Congressional Officials: A Randomized Field
+      Experiment", American Journal of Political Science.
+    year: 2016
+    kind: empirical
+    publisher: American Journal of Political Science
+    url: https://onlinelibrary.wiley.com/doi/full/10.1111/ajps.12180
+    verified: true
+    finding: >-
+      A randomised field experiment finding that contributions
+      facilitate access to officials. Points the same way as
+      hall_wayman_1990: the effect is on access and attention, not on
+      purchased votes.
+
+  oecd_lobbying_principles:
+    citation: >-
+      OECD, "Recommendation of the Council on Principles for
+      Transparency and Integrity in Lobbying" (adopted 2010, revised
+      2024).
+    year: 2024
+    kind: standard
+    publisher: OECD
+    url: https://legalinstruments.oecd.org/public/doc/256/256.en.pdf
+    verified: true
+    finding: >-
+      The first international standard addressing transparency and
+      integrity risks in lobbying. Closest structural analogue in this
+      domain to the FATF Recommendations that ground sift's patterns.
+
+  oecd_lobbying_21c:
+    citation: >-
+      OECD, "Lobbying in the 21st Century: Transparency, Integrity and
+      Access".
+    year: 2021
+    kind: comparative
+    publisher: OECD
+    url: https://www.oecd.org/content/dam/oecd/en/publications/reports/2021/05/lobbying-in-the-21st-century_bb7a371a/c6d8eff8-en.pdf
+    verified: true
+    finding: >-
+      Survey of influence-seeking practice and the gaps in disclosure
+      regimes that let it go unrecorded.
+
+  idea_lobbying_registers_2024:
+    citation: >-
+      International IDEA, "Mapping and Analysing Lobbying Registers",
+      Discussion Paper 1/2024.
+    year: 2024
+    kind: comparative
+    publisher: International IDEA
+    url: https://www.idea.int/sites/default/files/2024-03/mapping-and-analysing-lobbying-registers.pdf
+    verified: true
+    finding: >-
+      Comparative analysis of what lobbying registers do and do not
+      capture. Directly relevant to stating the limits of LDA-derived
+      findings.
+
+  ti_political_finance_standards:
+    citation: >-
+      Transparency International, "Towards Standards for Integrity in
+      Political Finance", discussion paper.
+    year: 2025
+    kind: standard
+    publisher: Transparency International
+    url: https://knowledgehub.transparencycdn.org/kproducts/Discussion-Paper_Towards-Standards-for-Integrity-in-Political-Finance-1.pdf
+    verified: true
+    finding: >-
+      Proposes six interdependent principles for political finance
+      regimes: transparency, clean money, a level playing field, gender
+      equality, state neutrality and accountability.
+
+# Works evaluated and not adopted. Recorded so they are not
+# re-evaluated later, and so the reasoning survives.
+rejected:
+
+  soundex:
+    considered_for: name matching in entity resolution
+    reason: >-
+      Phonetic and anchored on the first letter, designed for English
+      surnames in early-20th-century census records. Measured against
+      six real failure pairs drawn from these repos it resolved one, and
+      that one was already handled by diacritic folding. The failure
+      modes that actually occur — truncation and nickname substitution —
+      are precisely what an initial-anchored phonetic code cannot
+      bridge. See mefos-lab/onoma.
+
+  propublica_congress_api:
+    considered_for: committee assignments and roll-call votes
+    reason: >-
+      Historically the standard source for this data, but no longer
+      available. The Sunlight Congress API is likewise defunct. Use
+      congress-legislators for membership and congress.gov for votes.

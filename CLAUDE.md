@@ -107,6 +107,30 @@ source, look up its documented rate limit and add an entry. LDA's
 120/min limit is confirmed from its live OpenAPI schema; OpenFEC and
 ProPublica NPE entries are conservative estimates pending confirmation.
 
+## Pattern provenance
+
+`patterns/SOURCES.yaml` is a keyed registry of works; `patterns/PATTERNS.yaml`
+records what each says about each pattern. Loaded by `packed/provenance.py`,
+exposed as the `pattern_provenance` tool, and attached to every result.
+
+**Citations carry a stance** — `supports`, `limits`, `contradicts` — because a
+work can do opposite things to two patterns. Hall & Wayman is evidence for
+aggregating money by committee seat and evidence against a votes-based timing
+pattern. A flat source list would let either citation read as endorsement.
+
+**Status is derived, not asserted.** A pattern is PROPOSED when uncited,
+SUPPORTED when a work supports it, CONTESTED when one contradicts it. A test
+enforces that status matches the citations, so the two cannot drift.
+
+When adding a pattern, add a registry entry — even an empty one. An uncited
+pattern reporting PROPOSED is honest; a pattern with no entry at all reads as
+"not checked", which is different and worse.
+
+When adding a source, append to SOURCES.yaml and cite it. Never inline a
+citation in a pattern; the registry is the single place a work is described, so
+a revised edition is updated once. Run `provenance.validate()` — a citation
+pointing at a renamed source fails silently otherwise.
+
 ## Skill
 
 `/follow` (`.claude/skills/follow/SKILL.md`) is the orchestration layer.
