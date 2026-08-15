@@ -137,6 +137,25 @@ through commingled accounts would produce confident fiction.
 When adding a pattern, add it to the skill's Step 2 as well, or it will
 not be reached by the workflow anyone actually runs.
 
+## Name matching
+
+Delegated to `onoma` (mefos-lab/onoma), which consolidates the matching
+that had been reimplemented separately in `congress_legislators_client`,
+`patterns.py`, and twice in sift.
+
+Two things it changed here beyond deduplication. It handles nicknames,
+which a prefix rule structurally cannot reach — "Bob" is not derivable
+from "Robert". And it classifies person vs. organisation, which matters
+because the LD-203 honoree field holds party committees, caucus PACs and
+placeholders alongside legislators; counting those as unresolved people
+measures the wrong denominator.
+
+**Prefer identifier joins where the data offers them.** Pattern 5 goes
+FEC recipient committee -> candidate ID -> legislator, with no name
+matching anywhere, and has no fuzzy tail as a result. Pattern 1 has to
+match LD-203 honoree names because no identifier is published for them.
+That asymmetry is a property of the sources, not a gap to close.
+
 ## Detection Patterns
 
 No generic condition/rule engine like Sift's `pattern_matcher.py` —

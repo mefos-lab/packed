@@ -18,6 +18,10 @@ dependencies = [
     "mcp>=2,<3",
     "httpx>=0.27.0",
     "pyyaml>=6.0",
+    # Shared name normalization and matching. Extracted from the duplicated
+    # implementations that had accumulated here and in sift; see the onoma
+    # README for why it exists and what it deliberately does not decide.
+    "onoma>=0.1.0",
 ]
 
 [tool.hatch.build.targets.wheel]

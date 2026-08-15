@@ -12,7 +12,7 @@ from packed.patterns import (
     detect_lobbyist_contribution_corroboration,
     detect_leadership_pac_transfers,
     detect_jfc_obscuring,
-    _names_roughly_match, _contributor_name, _two_year_period, _find_fec_match,
+    _committee_names_match, _contributor_name, _two_year_period, _find_fec_match,
 )
 from tests.test_clients import MockTransport
 
@@ -60,33 +60,33 @@ def _make_clients(lda_routes, fec_routes):
 # Helper function tests
 # =============================================================================
 
-class TestNamesRoughlyMatch:
+class TestCommitteeNamesMatch:
     def test_exact_match(self):
-        assert _names_roughly_match("TEST PAC", "TEST PAC") is True
+        assert _committee_names_match("TEST PAC", "TEST PAC") is True
 
     def test_case_and_punctuation_insensitive(self):
-        assert _names_roughly_match("Test, PAC!", "test pac") is True
+        assert _committee_names_match("Test, PAC!", "test pac") is True
 
     def test_partial_overlap_above_threshold(self):
-        assert _names_roughly_match("FRENCH HILL FOR ARKANSAS", "FRENCH HILL FOR CONGRESS") is True
+        assert _committee_names_match("FRENCH HILL FOR ARKANSAS", "FRENCH HILL FOR CONGRESS") is True
 
     def test_no_overlap(self):
-        assert _names_roughly_match("ALPHA COMMITTEE", "OMEGA FUND") is False
+        assert _committee_names_match("ALPHA COMMITTEE", "OMEGA FUND") is False
 
     def test_none_inputs(self):
-        assert _names_roughly_match(None, "TEST") is False
-        assert _names_roughly_match("TEST", None) is False
+        assert _committee_names_match(None, "TEST") is False
+        assert _committee_names_match("TEST", None) is False
 
     def test_abbreviation_vs_expanded_name(self):
         # Real-world case: LD-203 payee vs FEC committee name for the same PAC
-        assert _names_roughly_match(
+        assert _committee_names_match(
             "ARKANSAS LEADERSHIP PAC",
             "ARKANSAS FOR LEADERSHIP POLITICAL ACTION COMMITTEE (ARKPAC)",
         ) is True
 
     def test_generic_word_only_overlap_does_not_match(self):
         # Sharing only "COMMITTEE"/"PAC"-style words proves nothing
-        assert _names_roughly_match("VICTORY COMMITTEE", "LEADERSHIP COMMITTEE FOR THE PAC") is False
+        assert _committee_names_match("VICTORY COMMITTEE", "LEADERSHIP COMMITTEE FOR THE PAC") is False
 
 
 class TestContributorName:
