@@ -667,6 +667,34 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="pattern_employer_contribution_clusters",
+            description=(
+                "Find people sharing an employer who gave to the same "
+                "recipient within a short window — the shape of a "
+                "reimbursement scheme, where a company funds "
+                "contributions made in employees' names. It is equally "
+                "the shape of lawful workplace fundraising and nothing "
+                "in the data separates them, so results are leads, not "
+                "findings. Clusters where every donor gave an identical "
+                "amount are flagged, since a reimbursement is usually a "
+                "fixed sum per person. Pass-through committees "
+                "(ActBlue, WinRed) are excluded by default because they "
+                "mask the real recipient."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "employer": {"type": "string", "description": "Employer name as self-reported on contributions, e.g. 'Calspan'"},
+                    "two_year_transaction_period": {"type": "integer", "description": "Election cycle, e.g. 2022 (optional)"},
+                    "window_days": {"type": "integer", "description": "Days within which contributions count as one cluster (optional, default 3)"},
+                    "min_donors": {"type": "integer", "description": "Distinct contributors required to report a cluster (optional, default 2)"},
+                    "min_amount": {"type": "number", "description": "Ignore contributions below this amount (optional, default 200)"},
+                    "include_pass_through": {"type": "boolean", "description": "Include ActBlue/WinRed routed contributions (optional, default false)"},
+                },
+                "required": ["employer"],
+            },
+        ),
+        Tool(
             name="pattern_provenance",
             description=(
                 "What the literature says about the detection patterns. "
@@ -725,6 +753,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return _not_configured("LDA", "LDA_API_KEY")
     if name == "pattern_revolving_door" and lda_client is None:
         return _not_configured("LDA", "LDA_API_KEY")
+    if name == "pattern_employer_contribution_clusters" and fec_client is None:
+        return _not_configured("OpenFEC", "OPENFEC_API_KEY")
 
     tracker = ServiceTracker()
 
@@ -1039,6 +1069,18 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 client_name=arguments.get("client_name"),
                 filing_year=arguments.get("filing_year"),
                 include_subcommittees=arguments.get("include_subcommittees", False),
+            )
+            result = _pattern_result(match)
+
+        elif name == "pattern_employer_contribution_clusters":
+            match = await patterns_module.detect_employer_contribution_clusters(
+                fec_client,
+                employer=arguments["employer"],
+                two_year_transaction_period=arguments.get("two_year_transaction_period"),
+                window_days=arguments.get("window_days", patterns_module.EMPLOYER_CLUSTER_WINDOW_DAYS),
+                min_donors=arguments.get("min_donors", patterns_module.EMPLOYER_CLUSTER_MIN_DONORS),
+                min_amount=arguments.get("min_amount", patterns_module.EMPLOYER_CLUSTER_MIN_AMOUNT),
+                include_pass_through=arguments.get("include_pass_through", False),
             )
             result = _pattern_result(match)
 

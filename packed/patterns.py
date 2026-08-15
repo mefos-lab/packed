@@ -194,6 +194,40 @@ disclose no covered position at all, so a firm's real count is higher
 than any result here; and references to members who have left office do
 not resolve against a current-only roster, which is the single largest
 category of what gets dropped.
+
+Pattern 7: employer_contribution_clusters. People sharing an employer
+who give to one recipient inside a short window — the shape of a
+reimbursement scheme, in which a company funds contributions made in
+employees' names.
+
+It is equally the shape of a lawful workplace fundraising drive, and
+Schedule A holds nothing that separates them. So the output is a lead,
+and the description and warnings say so rather than leaving a reader to
+infer it. The one available discriminator is amount uniformity: a
+reimbursement is a fixed sum handed to each person, while colleagues
+giving independently rarely match to the dollar. Clusters where every
+donor gave an identical amount are flagged; that is suggestive, not
+decisive.
+
+Named for the shape rather than the mechanism. It began as
+"conduit_contribution_cluster" and was renamed before being built,
+because "conduit" asserts exactly the thing the data cannot establish.
+
+Two parameters exist because a first attempt found nothing at all, and
+both were assumptions rather than measurements:
+
+- ``min_donors`` defaults to 2. Requiring three erased the case this
+  pattern is grounded in — the scheme in MUR 8363 ran two donors at a
+  time.
+- Pass-through committees are excluded. A contribution routed through
+  one names the conduit as recipient rather than the campaign, and on
+  the employer checked they supplied roughly three quarters of the rows
+  as small recurring donations, which drown the signal.
+
+Verified against that matter: the FEC conciliated with Calspan
+Corporation over contributions reimbursed with corporate funds, and the
+top cluster this returns for that employer is four donors to one
+campaign on a single day, comprising every individual the matter names.
 """
 
 from __future__ import annotations
@@ -1277,5 +1311,259 @@ async def detect_revolving_door(
             "committee via a member is credited to the seats that member "
             "holds today, which need not be the seats they held while "
             "that lobbyist worked for them.",
+        ] + tracker.warnings,
+    )
+
+
+# Committees that receive earmarked money and pass it on. A contribution
+# routed through one names the conduit as recipient, not the campaign, so
+# clustering on the recipient would group unrelated donations that merely
+# share a platform.
+PASS_THROUGH_COMMITTEES = frozenset({
+    "ACTBLUE", "ACTBLUE CIVICS", "WINRED", "WINRED PAC",
+})
+
+# Small recurring online giving dominates Schedule A by row count and
+# produces dense same-amount coincidences ($10 on the same day) that carry
+# no signal. The floor is set to exclude that traffic rather than to mark
+# a threshold of concern.
+EMPLOYER_CLUSTER_MIN_AMOUNT = 200.0
+EMPLOYER_CLUSTER_WINDOW_DAYS = 3
+EMPLOYER_CLUSTER_MIN_DONORS = 2
+EMPLOYER_CLUSTER_MAX_PAGES = 12
+
+
+def _cluster_key(recipient: str, donors: tuple[str, ...]) -> tuple:
+    return (recipient, donors)
+
+
+def _maximal_clusters(clusters: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop clusters wholly contained in a larger one.
+
+    A sliding window starting at each contribution re-finds the same
+    event at every offset, so one four-donor cluster also appears as a
+    three- and a two-donor cluster. Reporting all of them would triple
+    count a single event.
+    """
+    kept: list[dict[str, Any]] = []
+    for candidate in sorted(clusters, key=lambda c: len(c["donors"]), reverse=True):
+        names = {d["contributor"] for d in candidate["donors"]}
+        if any(
+            other["recipient_committee_id"] == candidate["recipient_committee_id"]
+            and names <= {d["contributor"] for d in other["donors"]}
+            for other in kept
+        ):
+            continue
+        kept.append(candidate)
+    return kept
+
+
+async def detect_employer_contribution_clusters(
+    fec_client: OpenFECClient,
+    employer: str,
+    two_year_transaction_period: int | None = None,
+    window_days: int = EMPLOYER_CLUSTER_WINDOW_DAYS,
+    min_donors: int = EMPLOYER_CLUSTER_MIN_DONORS,
+    min_amount: float = EMPLOYER_CLUSTER_MIN_AMOUNT,
+    include_pass_through: bool = False,
+) -> PatternMatch:
+    """People sharing an employer who give to one recipient together.
+
+    See the module docstring (Pattern 7) for what this shape does and
+    does not support. In short: it is the shape of a reimbursement
+    scheme and equally the shape of a lawful workplace fundraising
+    drive, and nothing in Schedule A distinguishes them. The result is a
+    lead.
+    """
+    tracker = ServiceTracker()
+
+    rows: list[dict[str, Any]] = []
+    last_index = None
+    last_date = None
+    for _ in range(EMPLOYER_CLUSTER_MAX_PAGES):
+        page = await api_call(
+            tracker, "OpenFEC", "/schedules/schedule_a/",
+            lambda li=last_index, ld=last_date: fec_client.search_contributions(
+                contributor_employer=employer,
+                two_year_transaction_period=two_year_transaction_period,
+                per_page=100,
+                last_index=li,
+                last_contribution_receipt_date=ld,
+            ),
+        )
+        if page is None:
+            break
+        results = page.get("results") or []
+        if not results:
+            break
+        rows.extend(results)
+        indexes = (page.get("pagination") or {}).get("last_indexes") or {}
+        last_index = indexes.get("last_index")
+        last_date = indexes.get("last_contribution_receipt_date")
+        if not last_index:
+            break
+
+    if not rows and tracker.warnings:
+        return PatternMatch(
+            pattern_name="employer_contribution_clusters",
+            title="Contribution Clusters by Employer",
+            risk_level="INFO",
+            status="ERROR",
+            description="Could not fetch Schedule A contributions.",
+            findings=[],
+            warnings=tracker.warnings,
+        )
+
+    # Normalise to (date, contributor, amount, recipient) and drop the
+    # traffic the floor and the pass-through rule exclude.
+    from datetime import date as _date
+
+    parsed: list[tuple[_date, str, float, str, str]] = []
+    pass_through_rows = 0
+    below_floor_rows = 0
+    recipient_totals: dict[str, dict[str, Any]] = {}
+
+    for row in rows:
+        raw_date = (row.get("contribution_receipt_date") or "")[:10]
+        contributor = row.get("contributor_name")
+        committee = row.get("committee") or {}
+        recipient_name = (committee.get("name") or "").upper()
+        recipient_id = row.get("committee_id")
+        try:
+            amount = float(row.get("contribution_receipt_amount") or 0)
+        except (TypeError, ValueError):
+            continue
+        if not (raw_date and contributor and recipient_id and recipient_name):
+            continue
+        try:
+            when = _date.fromisoformat(raw_date)
+        except ValueError:
+            continue
+
+        if recipient_name in PASS_THROUGH_COMMITTEES and not include_pass_through:
+            pass_through_rows += 1
+            continue
+
+        entry = recipient_totals.setdefault(recipient_id, {
+            "recipient_committee_id": recipient_id,
+            "recipient": committee.get("name"),
+            "total_amount": 0.0,
+            "donors": set(),
+        })
+        entry["total_amount"] += amount
+        entry["donors"].add(contributor)
+
+        if amount < min_amount:
+            below_floor_rows += 1
+            continue
+        parsed.append((when, contributor, amount, recipient_id, committee.get("name") or recipient_id))
+
+    parsed.sort(key=lambda r: r[0])
+
+    by_recipient: dict[str, list[tuple[_date, str, float, str]]] = {}
+    for when, contributor, amount, recipient_id, recipient_name in parsed:
+        by_recipient.setdefault(recipient_id, []).append(
+            (when, contributor, amount, recipient_name)
+        )
+
+    raw_clusters: list[dict[str, Any]] = []
+    for recipient_id, items in by_recipient.items():
+        for start in range(len(items)):
+            window_start = items[start][0]
+            grouped: dict[str, list[tuple[_date, float]]] = {}
+            for when, contributor, amount, recipient_name in items[start:]:
+                if (when - window_start).days > window_days:
+                    break
+                grouped.setdefault(contributor, []).append((when, amount))
+            if len(grouped) < min_donors:
+                continue
+            donors = [
+                {
+                    "contributor": name,
+                    "amount": round(sum(a for _, a in gifts), 2),
+                    "dates": sorted({d.isoformat() for d, _ in gifts}),
+                }
+                for name, gifts in sorted(grouped.items())
+            ]
+            amounts = {d["amount"] for d in donors}
+            raw_clusters.append({
+                "recipient_committee_id": recipient_id,
+                "recipient": items[start][3],
+                "window_start": window_start.isoformat(),
+                "donor_count": len(donors),
+                "total_amount": round(sum(d["amount"] for d in donors), 2),
+                # Identical amounts are what separates this shape from
+                # ordinary colleagues giving in the same week. A
+                # reimbursement is a fixed sum handed to each conduit.
+                "amounts_identical": len(amounts) == 1,
+                "donors": donors,
+            })
+
+    findings = sorted(
+        _maximal_clusters(raw_clusters),
+        key=lambda c: (c["donor_count"], c["total_amount"]),
+        reverse=True,
+    )
+
+    concentration = sorted(
+        (
+            {
+                "recipient_committee_id": v["recipient_committee_id"],
+                "recipient": v["recipient"],
+                "total_amount": round(v["total_amount"], 2),
+                "donor_count": len(v["donors"]),
+            }
+            for v in recipient_totals.values()
+        ),
+        key=lambda r: r["total_amount"], reverse=True,
+    )
+
+    return PatternMatch(
+        pattern_name="employer_contribution_clusters",
+        title="Contribution Clusters by Employer",
+        risk_level="INFO",
+        status="ACTIVE",
+        description=(
+            "Groups contributions from people sharing an employer who "
+            "gave to the same recipient within a short window. This is "
+            "the shape of a reimbursement scheme, in which a company "
+            "funds contributions made in employees' names — and equally "
+            "the shape of a lawful workplace fundraising drive. Nothing "
+            "in Schedule A separates the two, so a cluster is a lead to "
+            "check, never a finding. Clusters where every donor gave an "
+            "identical amount are flagged, since a reimbursement is "
+            "typically a fixed sum per person while colleagues giving "
+            "independently rarely match to the dollar."
+        ),
+        findings=findings,
+        stats={
+            "employer": employer,
+            "two_year_transaction_period": two_year_transaction_period,
+            "contributions_examined": len(rows),
+            "eligible_after_filters": len(parsed),
+            "pass_through_rows_excluded": pass_through_rows,
+            "below_floor_rows_excluded": below_floor_rows,
+            "window_days": window_days,
+            "min_donors": min_donors,
+            "min_amount": min_amount,
+            "clusters": len(findings),
+            "clusters_with_identical_amounts": sum(
+                1 for f in findings if f["amounts_identical"]
+            ),
+            "recipient_concentration": concentration[:15],
+        },
+        warnings=[
+            "A cluster is not evidence of reimbursement. Lawful bundling "
+            "— a PAC drive, a fundraiser at the office, colleagues "
+            "attending the same event — produces the same shape, and is "
+            "far more common than the unlawful version.",
+            "Employer is self-reported free text on each contribution "
+            "and is matched as written. Spelling variants, subsidiaries "
+            "and blank fields all cause under-collection, so any total "
+            "here is a floor.",
+            "Contributions routed through a pass-through committee name "
+            "that conduit as the recipient rather than the campaign, so "
+            "they are excluded by default; the money still reached a "
+            "candidate this pattern cannot see.",
         ] + tracker.warnings,
     )
