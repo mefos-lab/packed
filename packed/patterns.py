@@ -228,6 +228,36 @@ Verified against that matter: the FEC conciliated with Calspan
 Corporation over contributions reimbursed with corporate funds, and the
 top cluster this returns for that employer is four donors to one
 campaign on a single day, comprising every individual the matter names.
+
+Pattern 8: common_vendor_overlap. Vendors paid by both a candidate's
+campaign and an outside group spending independently to elect them.
+
+The schedule split is the part that had to be measured rather than
+assumed, and it is why "intersect the disbursements" would not have
+worked. An independent-expenditure committee reports its media buys on
+Schedule E, under a payee field of its own, and carries almost nothing
+on Schedule B — one such committee showed a single Schedule B row
+against millions in reported expenditures. So the campaign side reads
+Schedule B and the outside side reads E and B together.
+
+Coordination is a legal conclusion resting on facts no filing
+discloses, and sharing a vendor is lawful where the firm firewalls its
+teams. This reports the overlap and what each side paid.
+
+A raw overlap list is dominated by commodity vendors, because every
+committee buys from the same airlines, rideshare and shipping
+companies. Each shared vendor therefore carries its share of each
+side's spending, which is what separates a consultancy taking real
+money from both from an airline taking a rounding error. Those shares
+are computed over the spending actually retrieved rather than a
+committee's full ledger, since pagination is capped — the field names
+say "sampled" so the denominator cannot be mistaken.
+
+Name matching is onoma's, with one guard. A vendor name that reduces to
+a single short token matches far too much: "AT&T" normalises to the
+token "at", which onoma then finds inside "MILLER'S SUPPLIES AT WORK".
+Requiring a shared token of real length forces such names to match
+exactly instead.
 """
 
 from __future__ import annotations
@@ -1565,5 +1595,294 @@ async def detect_employer_contribution_clusters(
             "that conduit as the recipient rather than the campaign, so "
             "they are excluded by default; the money still reached a "
             "candidate this pattern cannot see.",
+        ] + tracker.warnings,
+    )
+
+
+# A vendor name reduced to one short token matches far too much: "AT&T"
+# normalises to the single token "at", which onoma then finds inside
+# "MILLER'S SUPPLIES AT WORK". Requiring a shared token of real length
+# forces those names to match exactly instead.
+VENDOR_TOKEN_MIN_LENGTH = 4
+
+VENDOR_OVERLAP_MIN_AMOUNT = 1000.0
+VENDOR_OVERLAP_MAX_PAGES = 6
+VENDOR_OVERLAP_MAX_IE_COMMITTEES = 5
+
+
+def _same_vendor(a: str, b: str) -> bool:
+    """Do two payee names refer to one vendor?
+
+    onoma decides, with a guard against its one failure mode here.
+    """
+    if not (a and b):
+        return False
+    if onoma.fold(a) == onoma.fold(b):
+        return True
+    if not onoma.same_org(a, b):
+        return False
+    shared = onoma.distinctive_tokens(a) & onoma.distinctive_tokens(b)
+    return any(len(t) >= VENDOR_TOKEN_MIN_LENGTH for t in shared)
+
+
+async def _collect_payees(
+    fec_client: OpenFECClient,
+    tracker: ServiceTracker,
+    committee_id: str,
+    cycle: int | None,
+    schedule: str,
+) -> dict[str, float]:
+    """Total paid to each payee by one committee, on one schedule.
+
+    Both schedules are needed for an independent-expenditure committee:
+    its operating costs are on B, but the media buys — the money that
+    makes it worth looking at — are on E, under a separate payee field.
+    A campaign has no E of its own.
+    """
+    totals: dict[str, float] = {}
+    last_index = None
+    last_date = None
+
+    for _ in range(VENDOR_OVERLAP_MAX_PAGES):
+        if schedule == "B":
+            page = await api_call(
+                tracker, "OpenFEC", "/schedules/schedule_b/",
+                lambda li=last_index, ld=last_date: fec_client.search_disbursements(
+                    committee_id=committee_id,
+                    two_year_transaction_period=cycle,
+                    per_page=100,
+                    last_index=li,
+                    last_disbursement_date=ld,
+                ),
+            )
+            name_field, amount_field = "recipient_name", "disbursement_amount"
+            date_key = "last_disbursement_date"
+        else:
+            page = await api_call(
+                tracker, "OpenFEC", "/schedules/schedule_e/",
+                lambda li=last_index, ld=last_date: fec_client.search_independent_expenditures(
+                    committee_id=committee_id,
+                    two_year_transaction_period=cycle,
+                    per_page=100,
+                    last_index=li,
+                    last_expenditure_date=ld,
+                ),
+            )
+            name_field, amount_field = "payee_name", "expenditure_amount"
+            date_key = "last_expenditure_date"
+
+        if page is None:
+            break
+        results = page.get("results") or []
+        if not results:
+            break
+        for row in results:
+            name = (row.get(name_field) or "").strip()
+            if not name:
+                continue
+            try:
+                totals[name] = totals.get(name, 0.0) + float(row.get(amount_field) or 0)
+            except (TypeError, ValueError):
+                continue
+        indexes = (page.get("pagination") or {}).get("last_indexes") or {}
+        last_index = indexes.get("last_index")
+        last_date = indexes.get(date_key)
+        if not last_index:
+            break
+
+    return totals
+
+
+async def detect_common_vendor_overlap(
+    fec_client: OpenFECClient,
+    candidate_id: str,
+    two_year_transaction_period: int | None = None,
+    support_oppose_indicator: str = "S",
+    min_amount: float = VENDOR_OVERLAP_MIN_AMOUNT,
+    max_ie_committees: int = VENDOR_OVERLAP_MAX_IE_COMMITTEES,
+) -> PatternMatch:
+    """Vendors paid by both a candidate's campaign and an outside group
+    spending to elect them.
+
+    See the module docstring (Pattern 8) for what a shared vendor does
+    and does not show. Coordination is a legal conclusion resting on
+    facts disclosure cannot reach, and sharing a vendor is lawful where
+    the firm maintains a firewall. This reports the overlap.
+    """
+    tracker = ServiceTracker()
+
+    committees = await api_call(
+        tracker, "OpenFEC", f"/candidate/{candidate_id}/committees/",
+        lambda: fec_client.get_candidate_committees(candidate_id),
+    )
+    if committees is None:
+        return PatternMatch(
+            pattern_name="common_vendor_overlap",
+            title="Vendors Shared With Outside Spenders",
+            risk_level="INFO",
+            status="ERROR",
+            description="Could not resolve the candidate's committees.",
+            findings=[],
+            warnings=tracker.warnings,
+        )
+
+    campaigns = [
+        c for c in (committees.get("results") or [])
+        if (c.get("designation") or "") in ("P", "A")
+    ]
+    if not campaigns:
+        return PatternMatch(
+            pattern_name="common_vendor_overlap",
+            title="Vendors Shared With Outside Spenders",
+            risk_level="INFO",
+            status="ACTIVE",
+            description="No authorized campaign committee found for this candidate.",
+            findings=[],
+            stats={"candidate_id": candidate_id},
+            warnings=tracker.warnings,
+        )
+
+    campaign = campaigns[0]
+    campaign_id = campaign.get("committee_id")
+
+    # Who is spending independently for (or against) this candidate.
+    spenders = await api_call(
+        tracker, "OpenFEC", "/schedules/schedule_e/",
+        lambda: fec_client.search_independent_expenditures(
+            candidate_id=candidate_id,
+            support_oppose_indicator=support_oppose_indicator,
+            two_year_transaction_period=two_year_transaction_period,
+            per_page=100,
+        ),
+    )
+    ie_totals: dict[str, dict[str, Any]] = {}
+    for row in ((spenders or {}).get("results") or []):
+        cid = row.get("committee_id")
+        if not cid or cid == campaign_id:
+            continue
+        entry = ie_totals.setdefault(cid, {
+            "committee_id": cid,
+            "name": (row.get("committee") or {}).get("name") or cid,
+            "reported_ie_amount": 0.0,
+        })
+        try:
+            entry["reported_ie_amount"] += float(row.get("expenditure_amount") or 0)
+        except (TypeError, ValueError):
+            pass
+
+    ranked = sorted(
+        ie_totals.values(), key=lambda c: c["reported_ie_amount"], reverse=True,
+    )[:max_ie_committees]
+
+    campaign_payees = await _collect_payees(
+        fec_client, tracker, campaign_id, two_year_transaction_period, "B",
+    )
+    campaign_total = sum(campaign_payees.values())
+
+    findings: list[dict[str, Any]] = []
+    for spender in ranked:
+        payees = await _collect_payees(
+            fec_client, tracker, spender["committee_id"], two_year_transaction_period, "E",
+        )
+        for name, amount in (await _collect_payees(
+            fec_client, tracker, spender["committee_id"], two_year_transaction_period, "B",
+        )).items():
+            payees[name] = payees.get(name, 0.0) + amount
+        spender_total = sum(payees.values())
+
+        shared: list[dict[str, Any]] = []
+        for camp_name, camp_amount in campaign_payees.items():
+            for ie_name, ie_amount in payees.items():
+                if camp_amount < min_amount and ie_amount < min_amount:
+                    continue
+                if not _same_vendor(camp_name, ie_name):
+                    continue
+                shared.append({
+                    "vendor": ie_name if len(ie_name) >= len(camp_name) else camp_name,
+                    "campaign_payee_name": camp_name,
+                    "outside_payee_name": ie_name,
+                    "campaign_amount": round(camp_amount, 2),
+                    "outside_amount": round(ie_amount, 2),
+                    # Share is what separates a shared consultant from a
+                    # shared airline: a commodity vendor is a rounding
+                    # error on both sides. The denominator is the
+                    # spending actually retrieved, not the committee's
+                    # true total, so the field name says "sampled" —
+                    # pagination is capped and a large committee is not
+                    # read to the end.
+                    "share_of_sampled_outside_spending": (
+                        round(100 * ie_amount / spender_total, 2) if spender_total else None
+                    ),
+                    "share_of_sampled_campaign_spending": (
+                        round(100 * camp_amount / campaign_total, 2) if campaign_total else None
+                    ),
+                })
+
+        if not shared:
+            continue
+        shared.sort(key=lambda v: v["outside_amount"], reverse=True)
+        findings.append({
+            "outside_committee_id": spender["committee_id"],
+            "outside_committee": spender["name"],
+            "reported_ie_amount": round(spender["reported_ie_amount"], 2),
+            "sampled_outside_spending": round(spender_total, 2),
+            "outside_payees_sampled": len(payees),
+            "shared_vendor_count": len(shared),
+            "shared_vendors": shared,
+        })
+
+    findings.sort(key=lambda f: f["shared_vendor_count"], reverse=True)
+
+    return PatternMatch(
+        pattern_name="common_vendor_overlap",
+        title="Vendors Shared With Outside Spenders",
+        risk_level="INFO",
+        status="ACTIVE",
+        description=(
+            "Finds vendors paid by both a candidate's own campaign and "
+            "an outside group spending independently to elect them. "
+            "Sharing a vendor is lawful — consultancies serve many "
+            "clients and may firewall their teams — and coordination is "
+            "a legal conclusion resting on facts no filing discloses. "
+            "What this reports is the overlap and what each side paid. "
+            "Read the share columns rather than the raw list: every "
+            "committee buys travel and shipping from the same handful of "
+            "companies, so a commodity vendor means nothing, while a "
+            "consultancy taking a large share of both sides is the thing "
+            "worth asking about."
+        ),
+        findings=findings,
+        stats={
+            "candidate_id": candidate_id,
+            "campaign_committee_id": campaign_id,
+            "campaign_committee": campaign.get("name"),
+            "two_year_transaction_period": two_year_transaction_period,
+            "support_oppose_indicator": support_oppose_indicator,
+            "campaign_payees": len(campaign_payees),
+            "sampled_campaign_spending": round(campaign_total, 2),
+            "outside_committees_found": len(ie_totals),
+            "outside_committees_examined": len(ranked),
+            "outside_committees_with_overlap": len(findings),
+            "min_amount": min_amount,
+        },
+        warnings=[
+            "A shared vendor is not coordination. Coordination turns on "
+            "whether information passed between the campaign and the "
+            "spender, which no filing discloses. Treat an overlap as a "
+            "question, not an answer.",
+            "Commodity vendors — airlines, rideshare, shipping, hotels, "
+            "payment processors — appear in almost every pair and carry "
+            "no signal. The share columns are there to separate them "
+            "from a consultancy taking real money from both sides.",
+            "Payee names are free text and matched by name, so a vendor "
+            "billing under two unrelated names will be missed and a "
+            "count here is a floor.",
+            "Only the largest outside spenders are examined, so a small "
+            "committee sharing a vendor can fall outside the result.",
+            "Share percentages are computed over the spending actually "
+            "retrieved, which is capped by pagination. For a large "
+            "committee that is a sample rather than its full ledger, so "
+            "read a share as relative weight within what was read, not "
+            "as a fraction of everything the committee spent.",
         ] + tracker.warnings,
     )

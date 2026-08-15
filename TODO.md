@@ -499,8 +499,39 @@ Remaining work on this:
       (`last_index` + `last_contribution_receipt_date`, which must be sent
       together or the API 422s) to the OpenFEC client.
 
-- [ ] Build the remaining mined candidates: `common_vendor_overlap` next
-      (Schedule B both sides, no new source), then `scam_pac_ratio`.
+- [x] **`common_vendor_overlap` built and live-verified** (2026-08-15).
+
+      **The specification was wrong about where the data lives, and measuring
+      first is what caught it.** The candidate said "Schedule B on both sides".
+      An independent-expenditure committee reports media buys on **Schedule E**
+      under its own payee field and carries almost nothing on B — UNITE TO WIN
+      had *one* Schedule B row; A STRONGER MICHIGAN had ten. A Schedule-B-only
+      intersection would have returned essentially nothing and looked like a
+      dead pattern. Campaign side reads B; outside side reads E and B together.
+
+      Live on Haley Stevens (S6MI00426, 2026): 157 campaign payees, 10 outside
+      spenders found, 5 examined, 2 with overlap. The signal is **Mission
+      Control** — $1,389,589 from United Democracy Project against $9,250 from
+      the campaign. The rest of the overlap is commodity noise (United Airlines,
+      Uber, Hotels.com, LexisNexis), which is why each vendor carries its share
+      of each side's spending.
+
+      **Found an onoma defect.** `same_org("AT&T", "MILLER'S SUPPLIES AT WORK")`
+      returns True: "AT&T" folds to the single token "at", a common English
+      word, which is then found inside the longer name. `require_strong=True` is
+      not the fix — it also rejects `LEXISNEXIS` against itself, since a
+      one-token org can never be "strong". Guarded here by requiring a shared
+      distinctive token of length >= 4. **This will bite sift too.**
+
+      Share percentages are computed over retrieved spending, not a committee's
+      full ledger, because pagination is capped. Field names say `sampled` so
+      the denominator cannot be misread.
+
+- [ ] **Fix the onoma single-short-token defect upstream** and drop packed's
+      local guard once it lands. The guard belongs in the shared library: any
+      caller matching organisation names hits this, and sift matches company
+      names throughout.
+- [ ] Build `scam_pac_ratio` — the last mined candidate with a clean data path.
 - [ ] Retrofit remains partial: `lobbyist_contribution_corroboration` is
       genuinely ungrounded rather than merely unresearched. It rests on the two
       filing regimes being independent, which is a property of the regimes, not

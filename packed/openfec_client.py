@@ -150,6 +150,8 @@ class OpenFECClient:
         min_amount: float | None = None,
         max_amount: float | None = None,
         per_page: int = 20,
+        last_index: str | None = None,
+        last_disbursement_date: str | None = None,
     ) -> dict[str, Any]:
         """Search itemized disbursements — where committee money goes out
         (Schedule B). Set recipient_committee_id to trace payments to
@@ -173,6 +175,8 @@ class OpenFECClient:
                 min_amount=min_amount,
                 max_amount=max_amount,
                 per_page=per_page,
+                last_index=last_index,
+                last_disbursement_date=last_disbursement_date,
             ),
         )
         resp.raise_for_status()
@@ -187,6 +191,8 @@ class OpenFECClient:
         min_amount: float | None = None,
         max_amount: float | None = None,
         per_page: int = 20,
+        last_index: str | None = None,
+        last_expenditure_date: str | None = None,
     ) -> dict[str, Any]:
         """Search independent expenditures (Schedule E) — spending by a
         committee not coordinated with a candidate, expressly advocating
@@ -205,6 +211,8 @@ class OpenFECClient:
                 min_amount=min_amount,
                 max_amount=max_amount,
                 per_page=per_page,
+                last_index=last_index,
+                last_expenditure_date=last_expenditure_date,
             ),
         )
         resp.raise_for_status()
