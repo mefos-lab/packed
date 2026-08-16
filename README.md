@@ -45,12 +45,21 @@ Every pattern carries its own provenance: what the literature says about it, wit
 ## Quick start
 
 ```bash
-# Clone and install
 git clone https://github.com/mefos-lab/packed.git
 cd packed
 python3 -m venv .venv && source .venv/bin/activate
+
+# onoma is a mefos-lab library and is not published to PyPI, so it has to
+# be installed from git before packed's own dependencies resolve.
+pip install "onoma @ git+https://github.com/mefos-lab/onoma"
 pip install -e .
 ```
+
+`packed` depends on [onoma](https://github.com/mefos-lab/onoma) for name
+normalization and matching. It is declared as an ordinary requirement rather
+than a git URL so that publishing it later needs no change here — but until
+that happens, `pip install -e .` on its own cannot find it, hence the extra
+line above.
 
 Add to `.mcp.json` in your project root (already present in this repo):
 
