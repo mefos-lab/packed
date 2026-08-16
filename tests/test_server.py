@@ -121,3 +121,41 @@ async def test_every_pattern_tool_serialises_through_the_same_path():
         "a pattern tool is serialising with asdict(match) directly; "
         "use _pattern_result(match) so provenance survives"
     )
+
+
+@pytest.mark.asyncio
+async def test_the_follow_skill_knows_every_pattern():
+    """The skill is the composition layer, and nothing kept it in step
+    with the tools. Four patterns were added while it still described
+    five, so half the capability was unreachable through the documented
+    entry point and no test noticed."""
+    from pathlib import Path
+    import re
+
+    skill_path = Path(__file__).resolve().parent.parent / ".claude" / "skills" / "follow" / "SKILL.md"
+    skill = skill_path.read_text()
+
+    tools = {t.name for t in await server_module.list_tools()}
+    patterns = {t for t in tools if t.startswith("pattern_")}
+    mentioned = set(re.findall(r"`(pattern_[a-z_]+)`", skill))
+
+    missing = patterns - mentioned
+    assert not missing, f"follow skill does not mention {sorted(missing)}"
+
+
+@pytest.mark.asyncio
+async def test_the_follow_skill_names_only_real_tools():
+    """A skill naming a tool that does not exist sends the model looking
+    for it mid-investigation."""
+    from pathlib import Path
+    import re
+
+    skill_path = Path(__file__).resolve().parent.parent / ".claude" / "skills" / "follow" / "SKILL.md"
+    skill = skill_path.read_text()
+
+    tools = {t.name for t in await server_module.list_tools()}
+    referenced = set(re.findall(
+        r"`((?:pattern|fec|lda|congress|propublica)_[a-z_]+)`", skill,
+    ))
+    unknown = referenced - tools
+    assert not unknown, f"follow skill references non-existent tools: {sorted(unknown)}"

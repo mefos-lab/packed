@@ -23,6 +23,7 @@ is the whole job, and that is what this automates.
 /follow <name> --as pac               — treat as a PAC / political committee
 /follow <name> --as firm              — treat as a lobbying registrant
 /follow <name> --as member            — treat as a member of Congress
+/follow <name> --as company           — treat as an employer, via its people's giving
 /follow <name> --cycle 2026           — scope to an election cycle
 /follow <name> --deep                 — follow intermediary committees one hop further
 /follow <name> --subcommittees        — include subcommittee seats, not just full committees
@@ -42,15 +43,33 @@ Never assume what a name refers to. Resolve before tracing.
   decides which pattern applies.
 - `lda_search_registrants` — is it a lobbying firm?
 - `congress_search_legislators` — is it a sitting member?
+- A company that is none of the above is still traceable, through what
+  its employees give. There is no registry to resolve against: employer
+  is free text typed on each contribution, so the name is the key. Try
+  the obvious variants before concluding there is nothing there.
 
 If several match, list them with their identifiers and ask which is
 meant. Two committees can share a name; picking silently produces a
 confident answer about the wrong entity.
 
+A single name can be several of these at once — a company with a
+corporate PAC, a lobbying registrant, and employees who give
+individually are three separate traces of one organisation. Run each
+and report them separately; they are different money.
+
 ## Step 2 — Trace, by entity type
 
 ### A PAC or political committee
 
+0. `pattern_candidate_support_ratio` — run this first, because it decides
+   whether the rest of the trace is worth reading. It reports what share
+   of the committee's spending reaches candidates and party committees at
+   all. A committee spending almost everything on its own operations has
+   little downstream money to trace, and that is the finding. A low share
+   is lawful and often correct for an independent-expenditure or
+   issue-advocacy group, so report it as the factual split it is, never
+   as a "scam PAC" — no law sets a required ratio. Cycles below the
+   receipts floor are returned unscored; do not read those as zero.
 1. `pattern_industry_concentration` — the primary view. Aggregates
    outbound giving by the congressional committees its recipients sit
    on. The join is identifier-based end to end, so what it attributes is
@@ -80,11 +99,21 @@ confident answer about the wrong entity.
    across two separately filed sources is a credibility signal; absence
    is not evidence of wrongdoing, since small contributions fall below
    FEC's itemization threshold.
-3. `lda_search_filings` for what the firm actually lobbies on. Report
+3. `pattern_revolving_door` — which congressional committees the firm's
+   own people came from, via the covered positions they disclose. This
+   is the committee-level view that the lobbying side otherwise lacks,
+   and it reaches it through the lobbyists' prior employment rather than
+   through anything about the client. Read the two routes it labels
+   separately: **served the committee** is a direct tie, while **staffed
+   a sitting member** credits someone to whatever seats that member holds
+   today, which need not be the seats they held at the time.
+4. `lda_search_filings` for what the firm actually lobbies on. Report
    issue areas and the chambers named — and note the limit below: LDA
-   records the chamber, never the committee.
-4. `lda_search_lobbyists` for who works there, and `covered_position` in
-   filings for prior government roles.
+   records the chamber, never the committee, so what a firm *lobbies*
+   stays chamber-level even when `pattern_revolving_door` names the
+   committees its staff *came from*. Those are different claims and must
+   not be merged into one sentence.
+5. `lda_search_lobbyists` for who works there.
 
 ### A member of Congress
 
@@ -98,6 +127,41 @@ confident answer about the wrong entity.
    spent supporting or opposing them by committees they do not control.
    Use `support_oppose_indicator` and report the two separately; they
    mean opposite things.
+5. `pattern_common_vendor_overlap` — vendors paid by both the campaign
+   and the outside groups spending to elect it. Read the share fields,
+   not the raw list: every committee buys from the same airlines and
+   shipping companies, and those overlaps mean nothing. A consultancy
+   taking real money from both sides is the line worth a question.
+   **Never call an overlap coordination** — that turns on whether
+   information passed between them, which no filing discloses.
+
+### A company or employer
+
+For an organisation whose people give as individuals, rather than
+through a PAC it controls.
+
+1. `pattern_employer_contribution_clusters` — colleagues at one employer
+   giving to the same recipient inside a short window. Two readings of
+   the same output:
+   - **The concentration view** (`stats.recipient_concentration`) — which
+     candidates the workforce's money reaches in aggregate. Safe to
+     report plainly.
+   - **The clusters** — the shape of a reimbursement scheme, where a
+     company funds contributions made in employees' names. It is equally
+     the shape of a lawful workplace fundraising drive and nothing in the
+     data separates them. Report a cluster as a lead to check, never as a
+     finding. Clusters flagged `amounts_identical` are the ones worth
+     asking about, since a reimbursement tends to be a fixed sum per
+     person, but that is suggestive and not proof.
+2. Check whether the company also has a corporate PAC
+   (`fec_search_committees`) and trace that separately as a PAC. Employee
+   giving and PAC giving are different money and must not be summed.
+3. `lda_search_registrants` and `lda_search_clients` — whether it lobbies
+   directly or retains firms. If it does, the firm trace applies too.
+
+Employer is self-reported free text, so anything here is a floor:
+spelling variants, subsidiaries and blank fields all lose contributions
+that really belong to the same organisation.
 
 ### Dark money (any entity type)
 
@@ -181,8 +245,18 @@ The patterns overlap. Reconcile rather than concatenating them.
 [committees by amount; mark chairs and ranking members explicitly —
  a chair's committee relationship is not equivalent to a junior member's]
 
+### Personnel ties
+[committees the entity's people previously worked for, if a firm was
+ traced. Label each as served-the-committee or staffed-a-member; they
+ are not the same strength of tie]
+
 ### Routes worth noting
 [intermediaries actually followed, and what they resolved to]
+
+### Leads, not findings
+[contribution clusters, shared vendors, name-resemblant 501(c)(4)s.
+ Everything here is a question to check, and must be stated as one.
+ Say what would confirm each]
 
 ### Not traced
 [unattributed recipients and why — party committees, non-incumbents,
@@ -202,7 +276,19 @@ The patterns overlap. Reconcile rather than concatenating them.
   reading — exposure per committee, not a partition of the dollars.
 - **LDA does not record which committee a client lobbies**, only the
   chamber. Never state or imply that a firm lobbied a specific committee;
-  that link is not in the data.
+  that link is not in the data. `pattern_revolving_door` names committees
+  a firm's *staff previously worked for*, which is a disclosed fact and a
+  different claim — keep the two in separate sentences.
+- Revolving-door coverage is a floor twice over: most lobbyists disclose
+  no covered position at all, and references to members who have left
+  office do not resolve against current rosters. Absence of a tie is not
+  evidence there is none.
+- A shared vendor is not coordination, and a low candidate-support ratio
+  is not misconduct. Both are lawful arrangements this tool can see;
+  neither carries the conclusion its shape suggests.
+- A contribution cluster among colleagues is not evidence of
+  reimbursement. Lawful bundling produces the identical shape and is far
+  more common.
 - Money reaching a member through a party committee is not attributable
   to that member from this data.
 - Intermediary committees commingle funds. A route from a donor to a
@@ -217,6 +303,16 @@ The patterns overlap. Reconcile rather than concatenating them.
   compose several calls and handle the pagination and filtering.
 - Every pattern returns `warnings` — surface them; they carry the
   interpretive limits for that specific result.
+- Every result also carries `provenance`: what the literature says about
+  that pattern, with each citation marked as supporting, limiting or
+  contradicting it. Use it when a reader is deciding how much weight a
+  finding bears. Two things there change what you should write:
+  a pattern reporting `PROPOSED` with no citations is ungrounded and must
+  not be presented as established, and one reporting `CONTESTED` has a
+  work arguing against it — read the citation before relying on it.
+  `pattern_provenance` gives the same registry directly, including
+  patterns considered and rejected, and is the right tool when asked why
+  packed does or does not do something.
 - Cross-tool: for the corporate ownership behind a donor, use the
   `sift` tools if present. That is where an entity's structure lives;
   `packed` covers what it spends.
