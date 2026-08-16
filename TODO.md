@@ -627,6 +627,21 @@ Remaining work on this:
       element early, which is a real risk since they are free text from public
       filings.
 
+      **Rebuilt on sift's pattern after the first attempt was rejected as
+      unreadable.** The first version was a hand-rolled force loop rendering
+      every node and label at once — a hairball. sift had already solved this
+      and it was not consulted, which was the actual mistake. Adopted from it:
+      D3 vendored locally (`packed/visualizations/`), a tabbed report rather
+      than a single canvas, and an overview stating findings in prose before
+      any graph appears. `forceCollide` is what stops nodes and labels
+      overlapping; only the better-connected third are labelled at rest.
+
+      Tabs are Overview, Network, Routes, Committee exposure, Clusters,
+      Revolving door, Support ratio and Limits. A tab with no data is hidden
+      rather than shown empty — an empty tab reads as "nothing found" when the
+      truth is "that pattern was not run". The overview narrative is generated
+      from the data, so it never promises findings it cannot list.
+
 - [ ] Remaining mined candidates are all judged not worth building as
       specified: `timing_correlation` and `foreign_national_contributions` are
       CONTESTED, `dual_role` is closed in favour of `revolving_door`, and

@@ -195,6 +195,7 @@ async def _build_connection_graph(tracker, arguments: dict) -> dict:
         )
         html = graph_html.render(
             graph,
+            matches=matches,
             heading=f"packed — connections: {subject}",
             subhead=f"{len(graph.sources)} patterns · "
                     + (f"cycle {cycle}" if cycle else "all cycles"),

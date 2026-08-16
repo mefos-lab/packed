@@ -6,6 +6,8 @@ of overstating that claim. So most of these assert on what the graph
 refuses to do.
 """
 
+import re
+
 import pytest
 
 from packed import graph as g
@@ -264,27 +266,46 @@ class TestHtmlRendering:
         graph.sources.append("common_vendor_overlap")
         return graph
 
-    def test_renders_a_single_self_contained_page(self):
+    def _app_script(self, html):
+        """The page has two scripts: vendored D3, then the application."""
+        blocks = re.findall(r"<script>(.*?)</script>", html, re.S)
+        assert len(blocks) == 2, f"expected d3 + app, got {len(blocks)}"
+        return blocks[1]
+
+    def test_renders_one_complete_document(self):
         html = graph_html.render(self._graph(), heading="Test")
         assert html.startswith("<!doctype html>")
-        assert html.count("<script>") == 1 and html.count("</script>") == 1
+        assert html.count("<script>") == html.count("</script>") == 2
 
-    def test_makes_no_network_requests(self):
-        """The output is an artefact someone keeps. It has to still work
-        offline in two years."""
+    def test_d3_is_vendored_into_the_page(self):
+        """sift vendors D3 rather than loading it from a CDN, and this
+        follows that: the output has to open years from now, offline."""
         html = graph_html.render(self._graph(), heading="Test")
-        for marker in ("<script src", "<link rel=\"stylesheet\"", "@import", "https://"):
-            assert marker not in html
+        assert "d3js.org" in html and "forceCollide" in html
+
+    def test_nothing_is_fetched_at_load(self):
+        """What breaks an offline copy is a loading mechanism, not a URL
+        in a comment. D3 also ships a fetch helper it never calls unless
+        asked, so the network assertions split: markup is checked for
+        loaders, and only the application script for calls."""
+        html = graph_html.render(self._graph(), heading="Test")
+        markup = re.sub(r"<script>.*?</script>", "", html, flags=re.S)
+        for loader in ("<script src", '<link rel="stylesheet"', "@import",
+                       "<iframe", "<img src", "url(http"):
+            assert loader not in markup, loader
+        app = self._app_script(html)
+        for call in ("fetch(", "XMLHttpRequest", "import(", "WebSocket"):
+            assert call not in app, call
 
     def test_a_payee_name_cannot_close_the_script_element(self):
-        """Payee names are attacker-adjacent free text from a public
-        filing, and one containing a closing tag would end the script
-        early and break the page."""
+        """Payee names are free text from public filings, and one
+        containing a closing tag would end the script early and blank
+        the page."""
         html = graph_html.render(self._graph(), heading="Test")
-        body = html.split("<script>", 1)[1]
-        assert "</script>" in body
-        assert body.index("</script>") > body.index("A VENDOR")
-        assert "<\\/script>" in body
+        app = self._app_script(html)
+        assert "A VENDOR" in app
+        assert "</script>" not in app
+        assert "<\\/script>" in app
 
     def test_the_heading_is_escaped(self):
         html = graph_html.render(self._graph(), heading="<img onerror=x>")
@@ -298,5 +319,56 @@ class TestHtmlRendering:
         assert "bundling looks identical" in html
 
     def test_the_page_states_why_amounts_stop(self):
+        assert "commingled" in graph_html.render(self._graph(), heading="T")
+
+    def test_a_tab_with_no_data_is_hidden_rather_than_empty(self):
+        """An empty tab reads as 'nothing found' when the truth is 'that
+        pattern was never run'."""
         html = graph_html.render(self._graph(), heading="T")
-        assert "commingled" in html
+        assert 'data-tab="clusters" role="tab" data-empty="yes"' in html
+
+    def test_view_tabs_populate_from_pattern_results(self):
+        match = _match(
+            "revolving_door",
+            [{"committee_id": "SSFI", "committee_name": "Senate Finance", "chamber": "senate",
+              "lobbyists": [{"lobbyist": "A Person", "route": "served the committee",
+                             "via_member": None, "disclosed_position": "Counsel"}]}],
+            {"registrant_name": "A Firm"},
+        )
+        html = graph_html.render(g.build([match]), matches=[match], heading="T")
+        assert 'data-tab="revolving" role="tab" data-empty="no"' in html
+        assert "Senate Finance" in html
+
+
+class TestOverviewNarrative:
+    """The overview states findings in prose before any graph is drawn.
+    A force-directed hairball is raw material, not an analysis."""
+
+    def test_an_identical_amount_cluster_is_called_out_as_a_lead(self):
+        match = _match(
+            "employer_contribution_clusters",
+            [{"recipient_committee_id": "C1", "recipient": "A CAMPAIGN",
+              "window_start": "2023-02-13", "donor_count": 2, "amounts_identical": True,
+              "donors": [{"contributor": "A", "amount": 1000.0, "dates": ["2023-02-13"]},
+                         {"contributor": "B", "amount": 1000.0, "dates": ["2023-02-13"]}]}],
+            {"employer": "TESTCO", "recipient_concentration": []},
+        )
+        html = graph_html.render(g.build([match]), matches=[match], heading="T")
+        assert "identical amounts to A CAMPAIGN" in html
+        assert "lead to check, not a finding" in html
+
+    def test_a_low_support_ratio_is_stated_without_a_verdict(self):
+        match = _match(
+            "candidate_support_ratio",
+            [{"cycle": 2020, "receipts": 473371.0, "low_support": True,
+              "candidate_and_party_share_reported": 12.85}],
+            {"committee_id": "C1", "committee_name": "A PAC"},
+        )
+        html = graph_html.render(g.build([match]), matches=[match], heading="T")
+        assert "No law sets a required ratio" in html
+
+    def test_name_matched_entities_are_flagged_in_the_narrative(self):
+        graph = g.ConnectionGraph()
+        graph.add_node(g.Node(g.org_node_id("Some Vendor", "vendor"), "SOME VENDOR", "vendor"))
+        html = graph_html.render(graph, heading="T")
+        assert "matched by name, not identifier" in html

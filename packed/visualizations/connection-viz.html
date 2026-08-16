@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<style>
+  :root {
+    --bg:#0d1117; --surface:#161b22; --raised:#1c2128; --border:#30363d;
+    --text:#e6edf3; --text-muted:#8b949e; --text-dim:#484f58;
+
+    /* Semantic, and load-bearing: these encode what kind of claim an
+       edge makes, never how large a number is. */
+    --attributable:#3fb950;
+    --route:#8b949e;
+    --lead:#d29922;
+
+    /* Entity kinds. */
+    --committee:#58a6ff; --outside:#bc8cff; --vendor:#f0883e;
+    --congress:#39d2c0; --person:#a78bfa; --employer:#f97583;
+
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:var(--sans); font-size:14px; line-height:1.55;
+  }
+
+  .header {
+    padding:16px 24px; border-bottom:1px solid var(--border); background:var(--surface);
+    display:flex; gap:18px; align-items:baseline; flex-wrap:wrap;
+  }
+  .header h1 { margin:0; font-size:17px; font-weight:600; letter-spacing:-.01em; }
+  .header .sub { font-family:var(--mono); font-size:11px; color:var(--text-muted); }
+  .header .spacer { flex:1 1 auto; }
+
+  .tab-bar {
+    display:flex; gap:2px; padding:0 16px; background:var(--surface);
+    border-bottom:1px solid var(--border); overflow-x:auto;
+  }
+  .tab-btn {
+    background:none; border:none; border-bottom:2px solid transparent;
+    color:var(--text-muted); padding:11px 14px; cursor:pointer;
+    font-family:var(--sans); font-size:13px; white-space:nowrap;
+  }
+  .tab-btn:hover { color:var(--text); }
+  .tab-btn.active { color:var(--text); border-bottom-color:var(--attributable); }
+  .tab-btn:focus-visible { outline:2px solid var(--committee); outline-offset:-2px; }
+
+  .tab-content { display:none; }
+  .tab-content.active { display:block; }
+
+  .pane { padding:24px; max-width:1180px; }
+  .pane.wide { max-width:none; padding:0; }
+
+  h2.section {
+    font-size:15px; font-weight:600; margin:0 0 6px;
+  }
+  p.why {
+    color:var(--text-muted); font-size:13px; margin:0 0 18px; max-width:78ch;
+  }
+  p.why strong { color:var(--text); }
+
+  .summary-grid {
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+    gap:12px; margin-bottom:24px;
+  }
+  .summary-card {
+    background:var(--surface); border:1px solid var(--border);
+    border-left-width:3px; padding:14px 16px; border-radius:4px;
+  }
+  .summary-card.good { border-left-color:var(--attributable); }
+  .summary-card.neutral { border-left-color:var(--route); }
+  .summary-card.warn { border-left-color:var(--lead); }
+  .card-label {
+    font-family:var(--mono); font-size:10px; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--text-muted);
+  }
+  .card-value { font-size:26px; font-weight:600; line-height:1.2; margin:4px 0 2px;
+                font-variant-numeric:tabular-nums; }
+  .card-detail { font-size:12px; color:var(--text-muted); }
+
+  .narrative {
+    background:var(--surface); border:1px solid var(--border); border-radius:4px;
+    padding:18px 20px; margin-bottom:20px;
+  }
+  .narrative h3 { margin:0 0 10px; font-size:13px; font-weight:600; }
+  .narrative p { margin:0 0 12px; color:var(--text-muted); font-size:13.5px; max-width:80ch; }
+  .narrative p:last-child { margin-bottom:0; }
+  .narrative strong { color:var(--text); }
+
+  .callout {
+    border-left:3px solid var(--lead); background:var(--raised);
+    padding:12px 16px; margin:0 0 14px; font-size:13px; color:var(--text-muted);
+  }
+  .callout strong { color:var(--text); }
+
+  /* network */
+  .graph-container { display:grid; grid-template-columns:1fr 340px; }
+  @media (max-width:980px) { .graph-container { grid-template-columns:1fr; } }
+  .graph-panel { position:relative; height:660px; border-right:1px solid var(--border); }
+  .graph-panel svg { width:100%; height:100%; display:block; cursor:grab; }
+  .graph-panel svg.grabbing { cursor:grabbing; }
+  .graph-hint {
+    position:absolute; left:14px; bottom:12px; font-family:var(--mono);
+    font-size:10.5px; color:var(--text-dim); pointer-events:none;
+  }
+  .sidebar { padding:18px 20px; overflow-y:auto; height:660px; background:var(--surface); }
+  @media (max-width:980px) { .sidebar { height:auto; } }
+
+  .legend { margin:0 0 18px; }
+  .legend-item { display:flex; gap:9px; align-items:flex-start; margin-bottom:9px; font-size:12.5px; }
+  .legend-swatch { width:22px; flex:none; margin-top:7px; }
+  .legend-dot { width:10px; height:10px; border-radius:50%; flex:none; margin-top:5px; }
+  .legend-item .lt { color:var(--text-muted); }
+  .legend-item .lt b { display:block; color:var(--text); font-size:12.5px; }
+
+  .detail-row {
+    display:grid; grid-template-columns:100px 1fr; gap:10px; padding:6px 0;
+    border-bottom:1px solid var(--border); font-size:12.5px; font-family:var(--mono);
+  }
+  .detail-row span:first-child { color:var(--text-muted); }
+  .conn-item {
+    padding:7px 0; border-bottom:1px solid var(--border); font-size:12.5px;
+  }
+  .conn-item .rel { color:var(--text-muted); font-family:var(--mono); font-size:11px; }
+
+  .tag {
+    display:inline-block; font-family:var(--mono); font-size:9.5px; letter-spacing:.07em;
+    text-transform:uppercase; padding:2px 6px; border-radius:3px; border:1px solid currentColor;
+  }
+  .tag.exact { color:var(--attributable); }
+  .tag.resolved { color:var(--lead); }
+
+  select, button.action {
+    font-family:var(--mono); font-size:12px; padding:7px 10px; border-radius:4px;
+    background:var(--raised); color:var(--text); border:1px solid var(--border);
+  }
+  button.action { cursor:pointer; }
+  button.action:hover { border-color:var(--committee); }
+  select:focus-visible, button:focus-visible { outline:2px solid var(--committee); outline-offset:1px; }
+
+  .picker { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+  .picker select { flex:1 1 220px; min-width:0; }
+
+  .route {
+    background:var(--surface); border:1px solid var(--border); border-radius:4px;
+    padding:14px 16px; margin-bottom:12px;
+  }
+  .route.attributable { border-left:3px solid var(--attributable); }
+  .route.route { border-left:3px solid var(--route); }
+  .route.lead { border-left:3px solid var(--lead); }
+  .route .rhd {
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--text-muted); margin-bottom:9px;
+  }
+  .route ol { margin:0; padding-left:18px; font-size:13px; }
+  .route li { margin-bottom:5px; }
+  .route .amt { font-family:var(--mono); color:var(--attributable); }
+  .route .discount {
+    margin-top:10px; padding:9px 12px; background:var(--raised);
+    border-left:2px solid var(--lead); font-size:12.5px; color:var(--text-muted);
+  }
+
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th, td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--border); }
+  th {
+    font-family:var(--mono); font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--text-muted); font-weight:600; position:sticky; top:0; background:var(--bg);
+  }
+  td.num { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .scroller { overflow-x:auto; border:1px solid var(--border); border-radius:4px; }
+
+  .heat { display:inline-block; height:18px; border-radius:2px; min-width:3px; }
+  .bar-track { background:var(--raised); border-radius:2px; height:20px; display:flex; overflow:hidden; }
+  .bar-fill { height:100%; }
+
+  .empty { color:var(--text-dim); font-style:italic; font-size:13px; }
+  .warn-list p { margin:0 0 9px; color:var(--text-muted); font-size:12.5px; max-width:80ch; }
+
+  svg text { font-family:var(--mono); pointer-events:none; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>__HEADING__</h1>
+  <span class="sub">__SUBHEAD__</span>
+  <span class="spacer"></span>
+  <span class="sub">generated by packed &middot; self-contained, no network required</span>
+</div>
+
+<div class="tab-bar" role="tablist">
+  <button class="tab-btn active" data-tab="overview" role="tab"
+    title="What was found, how strong it is, and what it does not show.">Overview</button>
+  <button class="tab-btn" data-tab="network" role="tab"
+    title="Every entity and disclosed relationship. Drag, zoom, click for detail.">Network</button>
+  <button class="tab-btn" data-tab="routes" role="tab"
+    title="Every disclosed route between two entities. Several separate routes is the finding.">Routes</button>
+  <button class="tab-btn" data-tab="committees" role="tab" data-empty="__COMMITTEES_EMPTY__"
+    title="Whose congressional committee seats a funder's money lands on.">Committee exposure</button>
+  <button class="tab-btn" data-tab="clusters" role="tab" data-empty="__CLUSTERS_EMPTY__"
+    title="Colleagues at one employer giving to the same recipient together.">Clusters</button>
+  <button class="tab-btn" data-tab="revolving" role="tab" data-empty="__REVOLVING_EMPTY__"
+    title="Committees a firm's people previously worked for.">Revolving door</button>
+  <button class="tab-btn" data-tab="ratios" role="tab" data-empty="__RATIOS_EMPTY__"
+    title="What share of a committee's spending reaches candidates.">Support ratio</button>
+  <button class="tab-btn" data-tab="limits" role="tab"
+    title="What this view cannot show. Read before quoting anything.">Limits</button>
+</div>
+
+<div class="tab-content active" data-pane="overview"><div class="pane">
+  <div class="summary-grid" id="cards"></div>
+  <div class="narrative">
+    <h3>Why this is a connection graph, not a money-flow diagram</h3>
+    <p>Money entering an intermediary committee is <strong>commingled</strong>. A leadership PAC that
+       receives $5,000 from one donor holds it in a single account, and when it later gives $10,000
+       to a candidate, no part of that sum is traceable to the original donor. A weighted flow
+       diagram would draw a thick line straight through that hop and invent a figure nobody can
+       defend.</p>
+    <p>Connectivity survives what amounts do not. That two entities are linked by three separate
+       disclosed routes is a <strong>fact</strong>, and it needs no dollar figure attached to the far
+       end. So every edge here declares which kind of claim it is, and <strong>nothing is ever
+       summed along a path</strong> — there is deliberately no total anywhere in this interface.</p>
+  </div>
+  <div id="findings"></div>
+</div></div>
+
+<div class="tab-content" data-pane="network">
+  <div class="pane" style="padding-bottom:0">
+    <h2 class="section">Every entity and disclosed relationship</h2>
+    <p class="why">Node size reflects how many connections an entity has, not how much money it
+       moved. <strong>Line style encodes the kind of claim, never the size of an amount</strong> — a
+       thick dashed line would suggest a large sum travelling a path where no sum can travel at all.
+       Drag to rearrange, scroll to zoom, click any node for its detail.</p>
+  </div>
+  <div class="graph-container">
+    <div class="graph-panel"><svg id="canvas"></svg>
+      <div class="graph-hint">drag to move &middot; scroll to zoom &middot; click a node</div>
+    </div>
+    <div class="sidebar">
+      <div class="legend" id="legend"></div>
+      <div id="selection"><p class="empty">Click a node for its detail and connections.</p></div>
+    </div>
+  </div>
+</div>
+
+<div class="tab-content" data-pane="routes"><div class="pane">
+  <h2 class="section">Routes between two entities</h2>
+  <p class="why">A single connection between two entities is ordinary. <strong>Several separate
+     routes is the finding</strong> — it means the relationship shows up in more than one filing, in
+     more than one form. Routes are listed and counted, never added together: the same money
+     commonly appears on more than one of them.</p>
+  <div class="picker">
+    <select id="from" aria-label="From entity"></select>
+    <select id="to" aria-label="To entity"></select>
+    <button class="action" id="findpaths">Find every route</button>
+  </div>
+  <div id="routes"></div>
+</div></div>
+
+<div class="tab-content" data-pane="committees"><div class="pane">
+  <h2 class="section">Whose committee seats the money lands on</h2>
+  <p class="why">Giving to members of the committee with jurisdiction over your industry is
+     <strong>lawful and routine</strong>. The signal is concentration, not the existence of a
+     contribution. A dollar is counted once per committee its recipient sits on, so these totals
+     intentionally sum to more than the money given — the question is exposure per committee, not a
+     partition of the dollars.</p>
+  <div id="committees"></div>
+</div></div>
+
+<div class="tab-content" data-pane="clusters"><div class="pane">
+  <h2 class="section">Colleagues giving together</h2>
+  <p class="why">This is the shape of a reimbursement scheme, in which a company funds contributions
+     made in employees' names. It is <strong>equally the shape of a lawful workplace fundraising
+     drive</strong>, and nothing in the filings separates the two. Treat every cluster as a lead to
+     check, never a finding. Clusters where every donor gave an identical amount are marked, because
+     a reimbursement tends to be a fixed sum per person while colleagues giving independently rarely
+     match to the dollar — suggestive, not decisive.</p>
+  <div id="clusters"></div>
+</div></div>
+
+<div class="tab-content" data-pane="revolving"><div class="pane">
+  <h2 class="section">Committees a firm's people came from</h2>
+  <p class="why">Moving from government into lobbying is lawful and extremely common. What the
+     disclosure supports is showing <strong>where a firm's inside experience is concentrated</strong>,
+     not an allegation about any of it. The two routes are kept apart because they are not the same
+     claim: <em>served the committee</em> is disclosed directly, while <em>staffed a member</em>
+     credits someone to whatever seats that member holds today.</p>
+  <div class="callout">Most lobbyists disclose no covered position at all, and references to members
+     who have left office do not resolve against current rosters. <strong>Absence of a tie here is
+     not evidence there is none.</strong></div>
+  <div id="revolving"></div>
+</div></div>
+
+<div class="tab-content" data-pane="ratios"><div class="pane">
+  <h2 class="section">What share of spending reaches candidates</h2>
+  <p class="why">A low share is <strong>lawful and often entirely legitimate</strong> — an
+     independent-expenditure or issue-advocacy group is not supposed to be giving money to
+     candidates, and a young committee spends before it gives. No law sets a required ratio. What
+     this answers is the narrow factual question of where a donor's money went, which a committee's
+     name and its fundraising appeals do not reveal. Percentages are the FEC's own, surfaced rather
+     than recomputed.</p>
+  <div id="ratios"></div>
+</div></div>
+
+<div class="tab-content" data-pane="limits"><div class="pane">
+  <h2 class="section">What this cannot show</h2>
+  <p class="why">Every pattern that fed this view carries its own interpretive limits. A merged
+     picture is exactly where those get lost, so they are collected here in full.</p>
+  <div class="warn-list" id="warnings"></div>
+</div></div>
+
+<script>__D3__</script>
+<script>
+const DATA = __DATA__;
+const V = DATA.views;
+const fmt = n => n == null ? "—" : "$" + Math.round(n).toLocaleString();
+const KIND = { attributable:"var(--attributable)", route:"var(--route)", lead:"var(--lead)" };
+const NODE_COLOR = {
+  committee:"var(--committee)", outside_spender:"var(--outside)", vendor:"var(--vendor)",
+  congressional_committee:"var(--congress)", lobbyist:"var(--person)",
+  contributor:"var(--person)", employer:"var(--employer)", lobbying_firm:"var(--employer)",
+};
+
+/* ---------- tabs ---------- */
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  if (btn.dataset.empty === "yes") { btn.style.display = "none"; return; }
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+    btn.classList.add("active");
+    document.querySelector(`[data-pane="${btn.dataset.tab}"]`).classList.add("active");
+    if (btn.dataset.tab === "network") sizeGraph();
+  });
+});
+
+/* ---------- overview ---------- */
+const c = DATA.counts;
+document.getElementById("cards").innerHTML = [
+  ["good", c.attributable_edges, "Disclosed amounts", "A filing names both parties and the figure"],
+  ["neutral", c.route_edges, "Connections only", "Real links carrying no attributable amount"],
+  ["warn", c.lead_edges, "Leads to check", "Shapes lawful activity also produces"],
+  ["neutral", c.nodes, "Entities", `${c.nodes_resolved_by_name} matched by name, the rest by filed identifier`],
+].map(([cls, val, label, detail]) => `
+  <div class="summary-card ${cls}">
+    <div class="card-label">${label}</div>
+    <div class="card-value">${val}</div>
+    <div class="card-detail">${detail}</div>
+  </div>`).join("");
+
+document.getElementById("findings").innerHTML = V.findings.length
+  ? `<div class="narrative"><h3>What stands out</h3>${
+      V.findings.map(f => `<p><strong>${f.title}.</strong> ${f.body}</p>`).join("")}</div>`
+  : "";
+
+/* ---------- network ---------- */
+const nodes = DATA.nodes.map(n => ({...n}));
+const byId = new Map(nodes.map(n => [n.id, n]));
+const links = DATA.edges
+  .filter(e => byId.has(e.source) && byId.has(e.target))
+  .map(e => ({...e}));
+
+const deg = new Map();
+links.forEach(l => {
+  deg.set(l.source, (deg.get(l.source)||0)+1);
+  deg.set(l.target, (deg.get(l.target)||0)+1);
+});
+const radius = n => 5 + Math.min(11, Math.sqrt(deg.get(n.id)||1) * 3.2);
+
+const svg = d3.select("#canvas");
+const root = svg.append("g");
+const linkSel = root.append("g").attr("fill","none");
+const nodeSel = root.append("g");
+const labelSel = root.append("g");
+
+svg.call(d3.zoom().scaleExtent([0.25, 4]).on("zoom", ev => {
+  root.attr("transform", ev.transform);
+  labelSel.style("display", ev.transform.k < 0.55 ? "none" : null);
+}));
+
+const sim = d3.forceSimulation(nodes)
+  .force("link", d3.forceLink(links).id(d => d.id)
+    .distance(l => l.kind === "attributable" ? 95 : 135).strength(0.35))
+  .force("charge", d3.forceManyBody().strength(-320).distanceMax(520))
+  .force("x", d3.forceX().strength(0.045))
+  .force("y", d3.forceY().strength(0.055))
+  // Without collision the graph is a hairball with labels on top of each
+  // other, which is unreadable however correct the data is.
+  .force("collide", d3.forceCollide().radius(d => radius(d) + 16).iterations(2));
+
+const link = linkSel.selectAll("line").data(links).join("line")
+  .attr("stroke", d => KIND[d.kind])
+  .attr("stroke-width", d => d.kind === "attributable" ? 1.9 : 1.4)
+  .attr("stroke-opacity", 0.62)
+  .attr("stroke-dasharray", d => d.kind === "route" ? "5 4" : d.kind === "lead" ? "1 4" : null)
+  .attr("stroke-linecap", d => d.kind === "lead" ? "round" : null);
+
+const node = nodeSel.selectAll("circle").data(nodes).join("circle")
+  .attr("r", radius)
+  .attr("fill", d => NODE_COLOR[d.kind] || "var(--text-muted)")
+  .attr("stroke", d => d.identity === "exact" ? "var(--bg)" : "var(--lead)")
+  .attr("stroke-width", d => d.identity === "exact" ? 1.5 : 1.6)
+  .attr("stroke-dasharray", d => d.identity === "exact" ? null : "2 2")
+  .attr("tabindex", 0).attr("role", "button")
+  .attr("aria-label", d => d.label)
+  .style("cursor", "pointer")
+  .on("click", (ev, d) => select(d))
+  .on("keydown", (ev, d) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); select(d); } })
+  .call(d3.drag()
+    .on("start", (ev, d) => { if (!ev.active) sim.alphaTarget(0.25).restart(); d.fx = d.x; d.fy = d.y; svg.node().classList.add("grabbing"); })
+    .on("drag", (ev, d) => { d.fx = ev.x; d.fy = ev.y; })
+    .on("end", (ev, d) => { if (!ev.active) sim.alphaTarget(0); svg.node().classList.remove("grabbing"); }));
+
+node.append("title").text(d => `${d.label} — ${d.kind.replace(/_/g," ")}`);
+
+// Only the better-connected nodes are labelled at rest. Labelling all of
+// them is what turns a readable graph into noise.
+const labelled = new Set(
+  nodes.slice().sort((a,b) => (deg.get(b.id)||0) - (deg.get(a.id)||0))
+       .slice(0, Math.max(14, Math.round(nodes.length * 0.35))).map(n => n.id));
+
+const label = labelSel.selectAll("text").data(nodes.filter(n => labelled.has(n.id))).join("text")
+  .attr("font-size", 9.5).attr("fill", "var(--text-muted)").attr("text-anchor", "middle")
+  .text(d => d.label.length > 24 ? d.label.slice(0,23) + "…" : d.label);
+
+sim.on("tick", () => {
+  link.attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+      .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+  node.attr("cx", d => d.x).attr("cy", d => d.y);
+  label.attr("x", d => d.x).attr("y", d => d.y - radius(d) - 5);
+});
+
+function sizeGraph() {
+  const p = document.querySelector(".graph-panel").getBoundingClientRect();
+  svg.attr("viewBox", [-p.width/2, -p.height/2, p.width, p.height]);
+  sim.alpha(0.45).restart();
+}
+window.addEventListener("resize", sizeGraph);
+sizeGraph();
+
+document.getElementById("legend").innerHTML = `
+  <div class="legend-item"><svg class="legend-swatch" height="6" viewBox="0 0 22 6"><line x1="0" y1="3" x2="22" y2="3" stroke="var(--attributable)" stroke-width="2"/></svg>
+    <span class="lt"><b>Disclosed amount</b>A filing names both parties and the figure.</span></div>
+  <div class="legend-item"><svg class="legend-swatch" height="6" viewBox="0 0 22 6"><line x1="0" y1="3" x2="22" y2="3" stroke="var(--route)" stroke-width="2" stroke-dasharray="5 4"/></svg>
+    <span class="lt"><b>Connection only</b>Real, but carries no attributable amount.</span></div>
+  <div class="legend-item"><svg class="legend-swatch" height="6" viewBox="0 0 22 6"><line x1="0" y1="3" x2="22" y2="3" stroke="var(--lead)" stroke-width="2" stroke-dasharray="1 4" stroke-linecap="round"/></svg>
+    <span class="lt"><b>Lead</b>A shape lawful activity also produces.</span></div>
+  <div class="legend-item"><span class="legend-dot" style="background:var(--committee)"></span>
+    <span class="lt">committee</span></div>
+  <div class="legend-item"><span class="legend-dot" style="background:var(--vendor)"></span>
+    <span class="lt">vendor</span></div>
+  <div class="legend-item"><span class="legend-dot" style="background:var(--congress)"></span>
+    <span class="lt">congressional committee</span></div>
+  <div class="legend-item"><span class="legend-dot" style="background:var(--person)"></span>
+    <span class="lt">person</span></div>
+  <div class="legend-item"><span class="legend-dot" style="border:1.5px dashed var(--lead); background:none"></span>
+    <span class="lt">dashed ring = matched by name, not a filed identifier</span></div>`;
+
+function select(d) {
+  const conn = links.filter(l => l.source.id === d.id || l.target.id === d.id);
+  const detail = Object.entries(d.detail || {})
+    .filter(([,v]) => v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && !v.length))
+    .map(([k,v]) => `<div class="detail-row"><span>${k.replace(/_/g," ")}</span><span>${Array.isArray(v)?v.join(", "):v}</span></div>`).join("");
+  document.getElementById("selection").innerHTML = `
+    <h3 style="margin:0 0 8px;font-size:14px">${d.label}</h3>
+    <p style="margin:0 0 12px"><span class="tag ${d.identity==="exact"?"exact":"resolved"}">${
+      d.identity === "exact" ? "filed identifier" : "matched by name"}</span></p>
+    <p style="font-size:12.5px;color:var(--text-muted);margin:0 0 14px">${
+      d.identity === "exact"
+        ? "Joined on an identifier from the filing, so this is the entity it says it is."
+        : "Resolved from a name. It may merge two entities sharing a name, or miss one written differently — weigh routes through it accordingly."}</p>
+    ${detail}
+    <h3 style="margin:16px 0 6px;font-size:12px;color:var(--text-muted)">${conn.length} connection${conn.length===1?"":"s"}</h3>
+    ${conn.map(l => {
+      const other = l.source.id === d.id ? l.target : l.source;
+      const dir = l.source.id === d.id ? "→" : "←";
+      return `<div class="conn-item"><span class="rel">${l.relation}</span><br>${dir} ${other.label}${
+        l.amount ? ` <span class="amt" style="font-family:var(--mono)">${fmt(l.amount)}</span>` : ""}</div>`;
+    }).join("")}`;
+  link.attr("stroke-opacity", l => (l.source.id===d.id||l.target.id===d.id) ? 0.95 : 0.1);
+  node.attr("opacity", n => (n.id===d.id || conn.some(l => l.source.id===n.id || l.target.id===n.id)) ? 1 : 0.22);
+  label.attr("opacity", n => (n.id===d.id || conn.some(l => l.source.id===n.id || l.target.id===n.id)) ? 1 : 0.15);
+}
+
+/* ---------- routes ---------- */
+const fromSel = document.getElementById("from"), toSel = document.getElementById("to");
+nodes.slice().sort((a,b)=>a.label.localeCompare(b.label)).forEach(n => {
+  [fromSel,toSel].forEach(sel => {
+    const o = document.createElement("option"); o.value=n.id; o.textContent=n.label; sel.appendChild(o);
+  });
+});
+if (DATA.suggest && DATA.suggest.length === 2) { fromSel.value = DATA.suggest[0]; toSel.value = DATA.suggest[1]; }
+
+function neighbours(id) {
+  const out = [];
+  links.forEach(l => {
+    if (l.source.id === id) out.push([l.target.id, l]);
+    else if (l.target.id === id) out.push([l.source.id, l]);
+  });
+  return out;
+}
+function findRoutes(a, b, maxHops = 4, limit = 30) {
+  if (a === b) return [];
+  const found = [], q = [[a,[a],[]]];
+  while (q.length && found.length < limit) {
+    const [cur, seen, taken] = q.shift();
+    if (taken.length >= maxHops) continue;
+    for (const [nb, e] of neighbours(cur)) {
+      if (seen.includes(nb)) continue;
+      if (nb === b) found.push({nodes: seen.concat([nb]), edges: taken.concat([e])});
+      else q.push([nb, seen.concat([nb]), taken.concat([e])]);
+    }
+  }
+  return found;
+}
+const weakest = p => p.edges.some(e=>e.kind==="lead") ? "lead"
+                   : p.edges.some(e=>e.kind==="route") ? "route" : "attributable";
+
+document.getElementById("findpaths").addEventListener("click", () => {
+  const routes = findRoutes(fromSel.value, toSel.value).sort((x,y)=>x.edges.length-y.edges.length);
+  const box = document.getElementById("routes");
+  if (!routes.length) { box.innerHTML = '<p class="empty">No route within four hops.</p>'; return; }
+  const trivial = routes.filter(r => r.nodes.slice(1,-1).some(id => {
+    const v = byId.get(id);
+    return v && v.detail && typeof v.detail.share_of_sampled_outside_spending === "number"
+        && v.detail.share_of_sampled_outside_spending < 0.1;
+  })).length;
+  box.innerHTML = `
+    <div class="narrative"><p><strong>${routes.length} route${routes.length===1?"":"s"}</strong>
+      within four hops${trivial ? `, of which <strong>${trivial}</strong> run through a vendor taking a
+      negligible share of one side's spending and mean nothing on their own` : ""}.
+      Listed, never added together.</p></div>` +
+    routes.map(p => {
+      const k = weakest(p);
+      const dud = p.nodes.slice(1,-1).map(id=>byId.get(id)).filter(v =>
+        v && v.detail && typeof v.detail.share_of_sampled_outside_spending === "number"
+        && v.detail.share_of_sampled_outside_spending < 0.1);
+      return `<div class="route ${k}">
+        <div class="rhd">${p.edges.length} hop${p.edges.length===1?"":"s"} &middot; weakest link: ${k}</div>
+        <ol>${p.edges.map((e,i) => {
+          const f = byId.get(p.nodes[i]), t = byId.get(p.nodes[i+1]);
+          return `<li>${f.label} <span style="color:var(--text-muted)">${e.relation}</span> ${t.label}${
+            e.amount ? ` <span class="amt">${fmt(e.amount)}</span>` : ""}</li>`;
+        }).join("")}</ol>
+        ${dud.length ? `<div class="discount">Runs through ${dud.map(d=>d.label).join(", ")}, which took
+          under 0.1% of the outside committee's spending. Nearly every committee buys from the same
+          travel, shipping and software vendors, so this route is not evidence of a relationship.</div>` : ""}
+      </div>`;
+    }).join("");
+});
+document.getElementById("findpaths").click();
+
+/* ---------- committee exposure ---------- */
+if (V.committees.length) {
+  const max = Math.max(...V.committees.map(r => r.amount));
+  document.getElementById("committees").innerHTML = `<div class="scroller"><table>
+    <thead><tr><th>Funder</th><th>Congressional committee</th><th>Chamber</th>
+      <th class="num">Exposure</th><th style="width:180px">Share of largest</th>
+      <th>Chairs / ranking members</th></tr></thead><tbody>
+    ${V.committees.map(r => `<tr>
+      <td>${r.funder}</td><td>${r.committee}</td>
+      <td style="color:var(--text-muted)">${r.chamber || "—"}</td>
+      <td class="num">${fmt(r.amount)}</td>
+      <td><span class="heat" style="width:${Math.max(3, 100*r.amount/max)}%;background:var(--committee);opacity:${0.35 + 0.65*r.amount/max}"></span></td>
+      <td style="color:var(--text-muted);font-size:12px">${r.chairs.join(", ") || "—"}</td>
+    </tr>`).join("")}</tbody></table></div>`;
+}
+
+/* ---------- clusters ---------- */
+if (V.clusters.length) {
+  document.getElementById("clusters").innerHTML = V.clusters.map(cl => `
+    <div class="route ${cl.identical ? "lead" : "route"}">
+      <div class="rhd">${cl.window} &middot; ${cl.donors.length} donors &middot; ${cl.employer}
+        ${cl.identical ? '&middot; <span style="color:var(--lead)">identical amounts</span>' : ""}</div>
+      <div style="font-size:13.5px;margin-bottom:9px">to <strong>${cl.recipient}</strong></div>
+      <table><thead><tr><th>Donor</th><th class="num">Amount</th><th>Dates</th></tr></thead><tbody>
+      ${cl.donors.map(d => `<tr><td>${d.name}</td><td class="num">${fmt(d.amount)}</td>
+        <td style="color:var(--text-muted);font-family:var(--mono);font-size:12px">${d.dates.join(", ")}</td></tr>`).join("")}
+      </tbody></table>
+      ${cl.identical ? `<div class="discount">Every donor gave the same amount. That is what a fixed
+        reimbursement per person looks like — and colleagues giving independently rarely match to the
+        dollar. Suggestive, not decisive.</div>` : ""}
+    </div>`).join("");
+}
+
+/* ---------- revolving door ---------- */
+if (V.revolving.length) {
+  document.getElementById("revolving").innerHTML = V.revolving.map(r => `
+    <div class="route ${r.served ? "attributable" : "route"}">
+      <div class="rhd">${r.chamber || ""} &middot; ${r.people.length} ${r.people.length===1?"person":"people"}</div>
+      <div style="font-size:14px;margin-bottom:10px"><strong>${r.committee}</strong></div>
+      <table><thead><tr><th>Person</th><th>Route</th><th>Disclosed position</th></tr></thead><tbody>
+      ${r.people.map(p => `<tr>
+        <td>${p.name}</td>
+        <td style="color:${p.served ? "var(--attributable)" : "var(--route)"}">${p.route}${
+          p.via ? ` <span style="color:var(--text-muted)">(${p.via})</span>` : ""}</td>
+        <td style="color:var(--text-muted);font-size:12px">${p.position || "—"}</td></tr>`).join("")}
+      </tbody></table>
+    </div>`).join("");
+}
+
+/* ---------- support ratios ---------- */
+if (V.ratios.length) {
+  document.getElementById("ratios").innerHTML = V.ratios.map(r => {
+    const share = r.share == null ? null : Math.max(0, Math.min(100, r.share));
+    return `<div class="route ${r.low ? "lead" : "attributable"}">
+      <div class="rhd">${r.committee} &middot; cycle ${r.cycle} &middot; ${fmt(r.receipts)} raised</div>
+      ${share == null ? '<p class="empty">No share reported for this period.</p>' : `
+      <div class="bar-track">
+        <div class="bar-fill" style="width:${share}%;background:var(--attributable)"></div>
+        <div class="bar-fill" style="width:${100-share}%;background:var(--lead);opacity:.35"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted);margin-top:6px">
+        <span>${share.toFixed(1)}% to candidates and party</span>
+        <span>${(100-share).toFixed(1)}% own operations</span>
+      </div>`}
+    </div>`;
+  }).join("") + (V.ratios_below_floor ? `<div class="callout">${V.ratios_below_floor} further period(s)
+    fell below the receipts floor and are not scored. A committee that raised very little has a ratio
+    set by a single invoice.</div>` : "");
+}
+
+/* ---------- limits ---------- */
+document.getElementById("warnings").innerHTML =
+  DATA.warnings.map(w => `<p>&middot; ${w}</p>`).join("") || '<p class="empty">None recorded.</p>';
+</script>
+</body>
+</html>
