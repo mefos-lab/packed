@@ -40,6 +40,15 @@ Four data sources are integrated and verified live: OpenFEC (candidates, committ
 
 Nine detection patterns are built and live-verified: corroborating LD-203 lobbyist contributions against FEC's independently-filed records, tracing a leadership PAC's money flow, and tracing a joint fundraising committee's money flow (who funds it — including donors giving far more than any single committee's limit — and which committees it splits proceeds to), aggregating a lobbying firm's political giving by the congressional committees its recipients sit on, the same for a PAC's outbound giving — which reports money routed through intermediary committees as unattributed rather than following it — mapping a lobbying operation's revolving-door ties, grouping its people by the committees they disclose having worked for, clustering contributions by shared employer — the shape of a reimbursement scheme, and equally the shape of lawful workplace fundraising, reported as a lead rather than a finding — finding vendors paid by both a campaign and an outside group spending to elect it, and reporting what share of a committee’s spending actually reaches candidates. See `TODO.md`.
 
+All nine feed a **connection graph**: one node-and-edge vocabulary across every pattern, with a
+route finder that answers "how is this entity connected to that one, and by how many separate
+routes?" Several independent routes between the same pair is the finding; one is ordinary. Edges
+declare what kind of claim they are — a disclosed amount, connectivity only past a commingled hop,
+or a lead worth checking — and nothing is ever summed along a path, because money entering an
+intermediary committee is commingled and no part of what leaves is traceable to a given donor.
+`graph_connections` returns the graph and the routes, and can write a self-contained interactive
+page that needs no network access to open.
+
 Every pattern carries its own provenance: what the literature says about it, with each citation marked as supporting, limiting or contradicting the pattern, and patterns that are ungrounded reported as such rather than left to look sound.
 
 ## Quick start

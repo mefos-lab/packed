@@ -596,6 +596,37 @@ Remaining work on this:
       committees a firm's *staff came from*, which is a different claim, and
       the skill now says to keep them in separate sentences.
 
+- [x] **Connection graph built** (2026-08-15) — `packed/graph.py`,
+      `packed/graph_html.py`, exposed as `graph_connections`.
+
+      **Why a connection graph and not a money-flow diagram.** Commingling means
+      no amount survives an intermediary hop, so a weighted Sankey would invent
+      a number. Connectivity does survive, which is what makes "these two are
+      linked by three separate routes" a fact worth drawing. Edges declare their
+      kind — ATTRIBUTABLE, ROUTE or LEAD — and the dataclass **raises** if a
+      ROUTE or LEAD edge is given an amount. That guard is the design, not a
+      nicety.
+
+      Node identity is explicit: `fec:C00799031` is exact, `vendor:mission-control`
+      is an onoma name match that can merge or miss entities. Rendered
+      differently, because a path is only worth what its weakest node is.
+
+      **A real problem the live run exposed.** Stevens<->UDP returns six routes,
+      and four are Uber, Hotels.com and United Airlines — structurally identical
+      to the real one, evidentially worthless. Every committee buys from the same
+      travel and shipping vendors. The graph cannot judge this itself, so the
+      vendor's share of each side's spending travels onto the node and the
+      renderer flags any route whose intermediary took under 0.1%. Mission
+      Control ($1.39M, 0.92%) is correctly not flagged.
+
+      Adapters are per-pattern and a pattern without one is skipped rather than
+      fatal, so adding a detection pattern never breaks graph building.
+
+      HTML output is one self-contained file — no network access, so it still
+      opens in five years. Payee names are escaped against closing the script
+      element early, which is a real risk since they are free text from public
+      filings.
+
 - [ ] Remaining mined candidates are all judged not worth building as
       specified: `timing_correlation` and `foreign_national_contributions` are
       CONTESTED, `dual_role` is closed in favour of `revolving_door`, and

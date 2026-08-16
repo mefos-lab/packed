@@ -86,6 +86,134 @@ def _pattern_result(match) -> dict:
     return {**asdict(match), "provenance": match.provenance}
 
 
+async def _build_connection_graph(tracker, arguments: dict) -> dict:
+    """Run whichever patterns the given identifiers support, merge them
+    into one graph, and answer a route question over it.
+
+    Kept out of call_tool because it is the only tool that composes
+    several patterns, and the composition is the interesting part.
+    """
+    from . import graph as graph_module
+    from . import graph_html
+
+    committee_id = arguments.get("committee_id")
+    candidate_id = arguments.get("candidate_id")
+    registrant_name = arguments.get("registrant_name")
+    employer = arguments.get("employer")
+    cycle = arguments.get("cycle")
+
+    if not any((committee_id, candidate_id, registrant_name, employer)):
+        return {"error": "Give at least one of committee_id, candidate_id, "
+                         "registrant_name or employer."}
+
+    matches = []
+    if committee_id:
+        if fec_client is None:
+            return {"error": "OpenFEC is not configured — set OPENFEC_API_KEY"}
+        matches.append(await patterns_module.detect_industry_concentration(
+            fec_client, congress_client, committee_id=committee_id,
+            two_year_transaction_period=cycle,
+        ))
+        matches.append(await patterns_module.detect_candidate_support_ratio(
+            fec_client, committee_id=committee_id,
+        ))
+        matches.append(await patterns_module.detect_leadership_pac_transfers(
+            fec_client, committee_id=committee_id,
+            two_year_transaction_period=cycle,
+        ))
+    if candidate_id:
+        if fec_client is None:
+            return {"error": "OpenFEC is not configured — set OPENFEC_API_KEY"}
+        matches.append(await patterns_module.detect_common_vendor_overlap(
+            fec_client, candidate_id=candidate_id, two_year_transaction_period=cycle,
+        ))
+    if employer:
+        if fec_client is None:
+            return {"error": "OpenFEC is not configured — set OPENFEC_API_KEY"}
+        matches.append(await patterns_module.detect_employer_contribution_clusters(
+            fec_client, employer=employer, two_year_transaction_period=cycle,
+        ))
+    if registrant_name:
+        if lda_client is None:
+            return {"error": "LDA is not configured — set LDA_API_KEY"}
+        matches.append(await patterns_module.detect_lobbying_money_to_committee_seats(
+            lda_client, congress_client, registrant_name=registrant_name,
+            filing_year=cycle,
+        ))
+        matches.append(await patterns_module.detect_revolving_door(
+            lda_client, congress_client, registrant_name=registrant_name,
+            filing_year=cycle,
+        ))
+
+    graph = graph_module.build(matches)
+    result = graph.to_dict()
+
+    # Every pattern's interpretive limits travel with the graph. A merged
+    # view is exactly where they would otherwise be lost.
+    warnings: list[str] = []
+    for m in matches:
+        for w in (m.warnings if m else []):
+            if w not in warnings:
+                warnings.append(w)
+    result["warnings"] = warnings
+
+    pair = arguments.get("path_between")
+    suggest = None
+    if pair and len(pair) == 2:
+        start, end = pair
+        missing = [p for p in pair if p not in graph.nodes]
+        if missing:
+            result["paths"] = {
+                "error": f"not in this graph: {missing}",
+                "available_nodes": sorted(graph.nodes)[:60],
+            }
+        else:
+            found = graph.paths_between(
+                start, end, max_hops=int(arguments.get("max_hops") or 4),
+            )
+            independent = graph_module.ConnectionGraph.independent(found)
+            result["paths"] = {
+                "between": [graph.nodes[start].label, graph.nodes[end].label],
+                "routes_found": len(found),
+                "independent_routes": len(independent),
+                "note": (
+                    "Routes are listed, never added together — the same money "
+                    "commonly appears on more than one. Several independent "
+                    "routes is the finding; one is ordinary. Check each "
+                    "intermediary before treating it as evidence: two "
+                    "committees buying from the same airline are not connected "
+                    "in any meaningful sense."
+                ),
+                "routes": [p.to_dict(graph) for p in found],
+            }
+            suggest = (start, end)
+
+    export_path = arguments.get("export_path")
+    if export_path:
+        subject = ", ".join(
+            str(x) for x in (committee_id, candidate_id, registrant_name, employer) if x
+        )
+        html = graph_html.render(
+            graph,
+            heading=f"packed — connections: {subject}",
+            subhead=f"{len(graph.sources)} patterns · "
+                    + (f"cycle {cycle}" if cycle else "all cycles"),
+            warnings=warnings,
+            suggest=suggest,
+        )
+        path = Path(export_path).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(html, encoding="utf-8")
+        result["exported_to"] = str(path)
+        result["export_note"] = (
+            "Self-contained interactive page — no network access needed to "
+            "open it. Drag nodes, click for detail, filter by claim type, "
+            "and search routes between any two entities."
+        )
+
+    return result
+
+
 async def list_tools() -> list[Tool]:
     """The advertised tool set — source of truth for every schema."""
     return [
@@ -746,6 +874,41 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="graph_connections",
+            description=(
+                "Build a connection graph across the detection patterns "
+                "and optionally find every route between two entities. "
+                "Several separate routes between the same pair is the "
+                "finding; one is ordinary. Edges declare what kind of "
+                "claim they are — a disclosed amount, connectivity only "
+                "past a commingled hop, or a lead worth checking — and "
+                "nothing is ever summed along a path, because money "
+                "entering an intermediary committee is commingled and no "
+                "part of what leaves is traceable to a given donor. "
+                "Give any combination of identifiers; each runs the "
+                "patterns that apply and they merge into one graph. Set "
+                "export_path to also write a self-contained interactive "
+                "HTML page."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "committee_id": {"type": "string", "description": "FEC committee ID — adds its giving by committee seat, its support ratio, and its transfers (optional)"},
+                    "candidate_id": {"type": "string", "description": "FEC candidate ID — adds vendors shared with outside spenders (optional)"},
+                    "registrant_name": {"type": "string", "description": "Lobbying registrant — adds its LD-203 giving and its people's revolving-door ties (optional)"},
+                    "employer": {"type": "string", "description": "Employer name — adds contribution clusters among its people (optional)"},
+                    "cycle": {"type": "integer", "description": "Election cycle or filing year to scope to (optional)"},
+                    "path_between": {
+                        "type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 2,
+                        "description": "Two node IDs to find every route between, e.g. ['fec:C00903039','fec:C00799031'] (optional)",
+                    },
+                    "max_hops": {"type": "integer", "description": "Longest route to search for (optional, default 4)"},
+                    "export_path": {"type": "string", "description": "Write a self-contained interactive HTML page here (optional)"},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
             name="pattern_provenance",
             description=(
                 "What the literature says about the detection patterns. "
@@ -1160,6 +1323,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 low_support_threshold=arguments.get("low_support_threshold", patterns_module.SUPPORT_RATIO_LOW_THRESHOLD),
             )
             result = _pattern_result(match)
+
+        elif name == "graph_connections":
+            result = await _build_connection_graph(tracker, arguments)
 
         elif name == "pattern_provenance":
             single = arguments.get("pattern_name")
