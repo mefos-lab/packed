@@ -577,6 +577,25 @@ Remaining work on this:
       The floor correctly excluded three periods for the first committee, where
       receipts were four figures and the ratio meaningless.
 
+- [x] **`follow` skill brought back in step with the tools** (2026-08-15).
+      It described five patterns while nine existed, so `revolving_door`,
+      `employer_contribution_clusters`, `common_vendor_overlap` and
+      `candidate_support_ratio` were unreachable through the documented entry
+      point. Added a company/employer trace as a fourth entity type, put
+      `candidate_support_ratio` first in the PAC trace (it decides whether the
+      rest is worth reading), and taught the skill to surface `provenance` —
+      the registry existed but the composition layer never used it.
+
+      **Two tests now hold this closed**: every `pattern_*` tool must be named
+      in the skill, and every tool the skill names must exist. The drift
+      happened because nothing checked, which is the same failure as the
+      `asdict` provenance drop — correct code, no test on the seam.
+
+      Sharpened the LDA caveat rather than deleting it. "LDA never records
+      which committee a client lobbies" is still true; `revolving_door` names
+      committees a firm's *staff came from*, which is a different claim, and
+      the skill now says to keep them in separate sentences.
+
 - [ ] Remaining mined candidates are all judged not worth building as
       specified: `timing_correlation` and `foreign_national_contributions` are
       CONTESTED, `dual_role` is closed in favour of `revolving_door`, and
