@@ -207,6 +207,8 @@
     title="Committees a firm's people previously worked for.">Revolving door</button>
   <button class="tab-btn" data-tab="ratios" role="tab" data-empty="__RATIOS_EMPTY__"
     title="What share of a committee's spending reaches candidates.">Support ratio</button>
+  <button class="tab-btn" data-tab="backers" role="tab" data-empty="__BACKERS_EMPTY__"
+    title="Who funds a committee. An outside group is spending somebody's money.">Backers</button>
   <button class="tab-btn" data-tab="limits" role="tab"
     title="What this view cannot show. Read before quoting anything.">Limits</button>
 </div>
@@ -304,6 +306,20 @@
      name and its fundraising appeals do not reveal. Percentages are the FEC's own, surfaced rather
      than recomputed.</p>
   <div id="ratios"></div>
+</div></div>
+
+<div class="tab-content" data-pane="backers"><div class="pane">
+  <h2 class="section">Who funds the spenders</h2>
+  <p class="why">Every other view here watches money leave. An outside group running
+     advertisements is <strong>spending somebody's money</strong>, and the advertisement never says
+     whose. Where one backer supplies most of the funding, the committee is better described as that
+     backer's vehicle than as an independent actor — that is a factual reading of the filings, not
+     an accusation. Organisation, committee or individual comes from the filer's own declaration,
+     not guessed from the name.</p>
+  <div class="callout">Money in cannot be matched to money out. A committee's receipts are
+     commingled, so <strong>no contribution here can be traced to any particular expenditure</strong>
+     the committee made. Both hops are disclosed; the chain between them is not a sum.</div>
+  <div id="backers"></div>
 </div></div>
 
 <div class="tab-content" data-pane="limits"><div class="pane">
@@ -621,6 +637,34 @@ if (V.ratios.length) {
   }).join("") + (V.ratios_below_floor ? `<div class="callout">${V.ratios_below_floor} further period(s)
     fell below the receipts floor and are not scored. A committee that raised very little has a ratio
     set by a single invoice.</div>` : "");
+}
+
+/* ---------- backers ---------- */
+if (V.backers && V.backers.length) {
+  document.getElementById("backers").innerHTML = V.backers.map(b => `
+    <div class="route ${b.dominant ? "lead" : "attributable"}">
+      <div class="rhd">${b.designation || ""} &middot; ${fmt(b.itemised)} itemised &middot;
+        ${b.total_backers} backers${b.institutional_share != null
+          ? ` &middot; ${b.institutional_share}% institutional` : ""}</div>
+      <div style="font-size:14px;margin-bottom:10px"><strong>${b.committee}</strong></div>
+      ${b.dominant ? `<div class="discount" style="margin-top:0;margin-bottom:10px">
+        One backer supplies ${b.top_share}% of the itemised money. On these filings this committee
+        is that backer's vehicle rather than an independent spender.</div>` : ""}
+      <table><thead><tr><th>Backer</th><th>Type</th><th class="num">Amount</th>
+        <th class="num">Share</th><th style="width:170px"></th></tr></thead><tbody>
+      ${b.backers.map(k => `<tr>
+        <td>${k.name}</td>
+        <td style="color:var(--text-muted);font-size:12px">${k.kind}</td>
+        <td class="num">${fmt(k.amount)}</td>
+        <td class="num">${k.share == null ? "—" : k.share.toFixed(1) + "%"}</td>
+        <td><span class="heat" style="width:${Math.max(2, k.share || 0)}%;background:${
+          k.kind === "individual" ? "var(--person)" : "var(--committee)"}"></span></td>
+      </tr>`).join("")}</tbody></table>
+      ${b.total_backers > b.shown
+        ? `<p style="font-size:12px;color:var(--text-muted);margin:8px 0 0">Showing the largest
+           ${b.shown} of ${b.total_backers}. The tail is real and is not drawn on the network,
+           where it would be several hundred nodes.</p>` : ""}
+    </div>`).join("");
 }
 
 /* ---------- limits ---------- */

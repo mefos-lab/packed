@@ -372,3 +372,64 @@ class TestOverviewNarrative:
         graph.add_node(g.Node(g.org_node_id("Some Vendor", "vendor"), "SOME VENDOR", "vendor"))
         html = graph_html.render(graph, heading="T")
         assert "matched by name, not identifier" in html
+
+
+class TestBackerChain:
+    """The shape a reader asks for: "a super PAC backed by X supported Y".
+
+    Two disclosed hops that must never become one number.
+    """
+
+    def _chain(self):
+        backers = _match(
+            "committee_backers",
+            [{"contributor": "AMERICAN ISRAEL PUBLIC AFFAIRS COMMITTEE",
+              "amount": 30_000_000.0, "share_of_itemised": 36.12,
+              "kind": "organisation", "receipts": 4},
+             *[{"contributor": f"TINY BACKER {i}", "amount": 100.0,
+                "share_of_itemised": 0.01, "kind": "individual", "receipts": 1}
+               for i in range(3)]],
+            {"committee_id": "C00799031", "committee_name": "UDP",
+             "itemised_total": 83_062_762.0, "top_backer_share": 36.12,
+             "single_backer_dominant": False, "distinct_backers": 4},
+        )
+        overlap = _match(
+            "common_vendor_overlap",
+            [{"outside_committee_id": "C00799031", "outside_committee": "UDP",
+              "reported_ie_amount": 16_471_909.0, "shared_vendors": []}],
+            {"campaign_committee_id": "C00903039", "campaign_committee": "STEVENS"},
+        )
+        return g.build([backers, overlap])
+
+    def test_the_two_hop_chain_is_found(self):
+        graph = self._chain()
+        aipac = g.org_node_id("AMERICAN ISRAEL PUBLIC AFFAIRS COMMITTEE", "org")
+        paths = graph.paths_between(aipac, "fec:C00903039")
+        assert len(paths) == 1
+        assert [e.relation for e in paths[0].edges] == [
+            "funded", "spent independently to support",
+        ]
+
+    def test_each_hop_keeps_its_own_amount(self):
+        graph = self._chain()
+        aipac = g.org_node_id("AMERICAN ISRAEL PUBLIC AFFAIRS COMMITTEE", "org")
+        amounts = [e.amount for e in graph.paths_between(aipac, "fec:C00903039")[0].edges]
+        assert amounts == [30_000_000.0, 16_471_909.0]
+
+    def test_the_chain_offers_no_combined_total(self):
+        """Adding the hops would claim AIPAC funded a specific
+        expenditure. Receipts are commingled; it did not."""
+        path = self._chain().paths_between(
+            g.org_node_id("AMERICAN ISRAEL PUBLIC AFFAIRS COMMITTEE", "org"),
+            "fec:C00903039")[0]
+        assert not hasattr(path, "total")
+        assert "total" not in path.to_dict(self._chain())
+
+    def test_immaterial_backers_are_left_off_the_graph(self):
+        """The pattern returns the whole tail because it is real. Drawing
+        it would put several hundred donor nodes on the canvas and hide
+        the finding rather than show it."""
+        graph = self._chain()
+        assert not any("tiny-backer" in n for n in graph.nodes)
+        assert graph.nodes["fec:C00799031"].detail["backers_total"] == 4
+        assert graph.nodes["fec:C00799031"].detail["backers_shown"] == 1

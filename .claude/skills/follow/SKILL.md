@@ -61,7 +61,11 @@ and report them separately; they are different money.
 
 ### A PAC or political committee
 
-0. `pattern_candidate_support_ratio` — run this first, because it decides
+0. `pattern_committee_backers` — who funds it. Run this before anything
+   about its spending: a committee's money has a source, and for an
+   outside group that source is usually the more informative end.
+   `single_backer_dominant` is the flag to read.
+1. `pattern_candidate_support_ratio` — run this next, because it decides
    whether the rest of the trace is worth reading. It reports what share
    of the committee's spending reaches candidates and party committees at
    all. A committee spending almost everything on its own operations has
@@ -70,16 +74,16 @@ and report them separately; they are different money.
    issue-advocacy group, so report it as the factual split it is, never
    as a "scam PAC" — no law sets a required ratio. Cycles below the
    receipts floor are returned unscored; do not read those as zero.
-1. `pattern_industry_concentration` — the primary view. Aggregates
+2. `pattern_industry_concentration` — the primary view. Aggregates
    outbound giving by the congressional committees its recipients sit
    on. The join is identifier-based end to end, so what it attributes is
    solid.
-2. Read `stats.unattributed_amount` and `stats.unattributed_recipients`
+3. Read `stats.unattributed_amount` and `stats.unattributed_recipients`
    before reporting anything. This is the number that decides whether
    the headline is meaningful. If unattributed is a large share of
    `to_other_committees`, the direct view is a minority of the story and
    must not be presented as the whole.
-3. For each unattributed recipient, check its designation with
+4. For each unattributed recipient, check its designation with
    `fec_search_committees` or `fec_get_committee` and follow it:
    - designation `D` (leadership PAC) → `pattern_leadership_pac_transfers`
    - designation `J` (joint fundraising) → `pattern_jfc_obscuring`
@@ -87,7 +91,7 @@ and report them separately; they are different money.
      party-directed. Do not attempt to attribute party spending to
      individual members; the committee allocates it later by its own
      process and the link is not in this data.
-4. With `--deep`, follow one further hop from those results — and follow
+5. With `--deep`, follow one further hop from those results — and follow
    it as **routes, not amounts**. See the depth rule below.
 
 ### A lobbying firm (registrant)
@@ -127,7 +131,20 @@ and report them separately; they are different money.
    spent supporting or opposing them by committees they do not control.
    Use `support_oppose_indicator` and report the two separately; they
    mean opposite things.
-5. `pattern_common_vendor_overlap` — vendors paid by both the campaign
+5. `pattern_committee_backers` on **each outside spender** found above.
+   This is the hop that usually matters most and the one easiest to
+   skip: an outside group running advertisements is spending somebody's
+   money, and the advertisement never says whose. It is what turns "a
+   super PAC spent $16m supporting them" into "a super PAC backed by X
+   spent $16m supporting them" — two disclosed facts, and the second is
+   often the story.
+
+   Read `single_backer_dominant`. Where one backer supplies most of the
+   funding, describe the committee as that backer's vehicle; where the
+   funding is spread, do not. **Never add the two hops together** — what
+   a backer gave and what the committee spent are different sums and the
+   receipts are commingled.
+6. `pattern_common_vendor_overlap` — vendors paid by both the campaign
    and the outside groups spending to elect it. Read the share fields,
    not the raw list: every committee buys from the same airlines and
    shipping companies, and those overlaps mean nothing. A consultancy
@@ -283,6 +300,11 @@ The patterns overlap. Reconcile rather than concatenating them.
   no covered position at all, and references to members who have left
   office do not resolve against current rosters. Absence of a tie is not
   evidence there is none.
+- **A backer is not the spender.** "Backed by X" describes where a
+  committee's money came from. It does not license saying X spent the
+  money, X directed the advertisements, or any part of what the
+  committee spent was X's contribution — receipts are commingled and the
+  two hops are separate disclosed facts.
 - A shared vendor is not coordination, and a low candidate-support ratio
   is not misconduct. Both are lawful arrangements this tool can see;
   neither carries the conclusion its shape suggests.
@@ -299,6 +321,17 @@ The patterns overlap. Reconcile rather than concatenating them.
 
 ## Notes
 
+- **`graph_connections` composes all of this into one graph** and answers
+  "how is this entity connected to that one, and by how many separate
+  routes?". Give it any combination of identifiers; it runs the patterns
+  that apply, traces the funders of any outside spenders it finds, and
+  can write a self-contained interactive HTML page with `export_path`.
+  Reach for it when the question is about a relationship between two
+  named entities rather than about one entity's activity.
+- Several independent routes between one pair is the finding; a single
+  route is ordinary. Check every intermediary before treating a route as
+  evidence — two committees buying from the same airline are not
+  connected in any meaningful sense, and the graph flags those.
 - Run `pattern_*` tools before raw source tools. The patterns already
   compose several calls and handle the pagination and filtering.
 - Every pattern returns `warnings` — surface them; they carry the

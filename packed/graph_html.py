@@ -122,6 +122,32 @@ def _revolving_rows(matches: Iterable[Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def _backer_rows(matches: Iterable[Any]) -> list[dict[str, Any]]:
+    """Who funds each committee, and how concentrated that funding is."""
+    out: list[dict[str, Any]] = []
+    for m in matches:
+        if m.pattern_name != "committee_backers":
+            continue
+        st = m.stats
+        out.append({
+            "committee": st.get("committee_name") or st.get("committee_id"),
+            "designation": st.get("designation"),
+            "itemised": st.get("itemised_total"),
+            "dominant": bool(st.get("single_backer_dominant")),
+            "top_share": st.get("top_backer_share"),
+            "institutional_share": st.get("institutional_share"),
+            "shown": min(12, len(m.findings)),
+            "total_backers": st.get("distinct_backers"),
+            "backers": [
+                {"name": f.get("contributor"), "amount": f.get("amount"),
+                 "share": f.get("share_of_itemised"), "kind": f.get("kind")}
+                for f in m.findings[:12]
+            ],
+        })
+    out.sort(key=lambda r: r["itemised"] or 0, reverse=True)
+    return out
+
+
 def _ratio_rows(matches: Iterable[Any]) -> tuple[list[dict[str, Any]], int]:
     rows: list[dict[str, Any]] = []
     below = 0
@@ -211,6 +237,22 @@ def _findings(graph: ConnectionGraph, views: dict[str, Any]) -> list[dict[str, s
             ),
         })
 
+    dominant = [b for b in views["backers"] if b["dominant"]]
+    if dominant:
+        b = dominant[0]
+        out.append({
+            "title": (
+                f"{b['top_share']:.1f}% of {b['committee']}'s itemised money "
+                f"came from one backer"
+            ),
+            "body": (
+                "A committee drawing nearly all its funding from a single "
+                "source is better described as that source's vehicle than as "
+                "an independent actor. Lawful, and a factual reading of the "
+                "filings — but it changes who the spender really is."
+            ),
+        })
+
     resolved = graph.to_dict()["counts"]["nodes_resolved_by_name"]
     if resolved:
         out.append({
@@ -242,6 +284,7 @@ def render(
         "clusters": _cluster_rows(matches),
         "revolving": _revolving_rows(matches),
         "ratios": ratios,
+        "backers": _backer_rows(matches),
         "ratios_below_floor": ratios_below,
     }
     views["findings"] = _findings(graph, views)
@@ -261,6 +304,7 @@ def render(
         .replace("__CLUSTERS_EMPTY__", "no" if views["clusters"] else "yes")
         .replace("__REVOLVING_EMPTY__", "no" if views["revolving"] else "yes")
         .replace("__RATIOS_EMPTY__", "no" if views["ratios"] else "yes")
+        .replace("__BACKERS_EMPTY__", "no" if views["backers"] else "yes")
         .replace("__D3__", _D3.read_text(encoding="utf-8"))
         # A payee name containing a closing tag would end the script
         # element early. These are free text from public filings.

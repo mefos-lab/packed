@@ -2062,3 +2062,210 @@ async def detect_candidate_support_ratio(
             "patterns.",
         ] + tracker.warnings,
     )
+
+
+BACKERS_MAX_PAGES = 10
+
+# The filer's own declaration of what a contributor is. Only individuals
+# are people; a candidate committee, party committee or PAC giving money
+# is an institution acting, whatever its name looks like.
+_BACKER_KINDS = {
+    "IND": "individual",
+    "CAN": "individual",
+    "ORG": "organisation",
+    "COM": "committee",
+    "PAC": "committee",
+    "CCM": "committee",
+    "PTY": "committee",
+}
+# A committee drawing nearly all its money from one source is not really
+# an independent actor spending its own funds — it is that source
+# spending through a vehicle. The threshold marks where the description
+# "backed by" stops being loose talk, and is deliberately high.
+DOMINANT_BACKER_SHARE = 75.0
+
+
+async def detect_committee_backers(
+    fec_client: OpenFECClient,
+    committee_id: str | None = None,
+    committee_name: str | None = None,
+    two_year_transaction_period: int | None = None,
+    min_amount: float = 0.0,
+) -> PatternMatch:
+    """Who funds a committee — the money-in side, on its own.
+
+    See the module docstring (Pattern 10) for why this exists separately
+    from the leadership-PAC and joint-fundraising patterns.
+    """
+    tracker = ServiceTracker()
+
+    if not committee_id and not committee_name:
+        return PatternMatch(
+            pattern_name="committee_backers",
+            title="Who Funds This Committee",
+            risk_level="INFO",
+            status="ERROR",
+            description="Provide a committee_id or a committee_name.",
+            findings=[],
+            warnings=tracker.warnings,
+        )
+
+    if not committee_id:
+        found = await api_call(
+            tracker, "OpenFEC", "/committees/",
+            lambda: fec_client.search_committees(q=committee_name, per_page=5),
+        )
+        results = (found or {}).get("results") or []
+        if not results:
+            return PatternMatch(
+                pattern_name="committee_backers",
+                title="Who Funds This Committee",
+                risk_level="INFO",
+                status="ACTIVE",
+                description=f"No committee matched {committee_name!r}.",
+                findings=[],
+                stats={"committee_name": committee_name},
+                warnings=tracker.warnings,
+            )
+        committee_id = results[0]["committee_id"]
+
+    record = await api_call(
+        tracker, "OpenFEC", f"/committee/{committee_id}/",
+        lambda: fec_client.get_committee(committee_id),
+    )
+    info = ((record or {}).get("results") or [{}])[0]
+
+    rows: list[dict[str, Any]] = []
+    last_index = None
+    last_date = None
+    for _ in range(BACKERS_MAX_PAGES):
+        page = await api_call(
+            tracker, "OpenFEC", "/schedules/schedule_a/",
+            lambda li=last_index, ld=last_date: fec_client.search_contributions(
+                committee_id=committee_id,
+                two_year_transaction_period=two_year_transaction_period,
+                per_page=100, last_index=li, last_contribution_receipt_date=ld,
+            ),
+        )
+        if page is None:
+            break
+        results = page.get("results") or []
+        if not results:
+            break
+        rows.extend(results)
+        indexes = (page.get("pagination") or {}).get("last_indexes") or {}
+        last_index = indexes.get("last_index")
+        last_date = indexes.get("last_contribution_receipt_date")
+        if not last_index:
+            break
+
+    if not rows and tracker.warnings:
+        return PatternMatch(
+            pattern_name="committee_backers",
+            title="Who Funds This Committee",
+            risk_level="INFO",
+            status="ERROR",
+            description="Could not fetch contributions to this committee.",
+            findings=[],
+            warnings=tracker.warnings,
+        )
+
+    totals: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        name = (row.get("contributor_name") or "").strip()
+        if not name:
+            continue
+        try:
+            amount = float(row.get("contribution_receipt_amount") or 0)
+        except (TypeError, ValueError):
+            continue
+        entry = totals.setdefault(name, {
+            "contributor": name,
+            "amount": 0.0,
+            "receipts": 0,
+            # Whether a backer is an organisation or a person changes
+            # what the money means, and the filer declares it: Schedule A
+            # carries entity_type. Inferring it from the name instead
+            # gets it wrong on exactly the names that matter — "CENTER
+            # FORWARD" and "CHAIN BRIDGE BANK" both read as people to a
+            # keyword classifier, and both are organisations.
+            "kind": _BACKER_KINDS.get(
+                row.get("entity_type") or "",
+                "individual" if onoma.is_person(name) else "organisation",
+            ),
+            "entity_type": row.get("entity_type"),
+            "contributor_committee_id": row.get("contributor_id"),
+        })
+        entry["amount"] += amount
+        entry["receipts"] += 1
+
+    itemised = sum(e["amount"] for e in totals.values())
+    findings = sorted(
+        (e for e in totals.values() if e["amount"] >= min_amount),
+        key=lambda e: e["amount"], reverse=True,
+    )
+    for entry in findings:
+        entry["amount"] = round(entry["amount"], 2)
+        entry["share_of_itemised"] = (
+            round(100 * entry["amount"] / itemised, 2) if itemised else None
+        )
+
+    top = findings[0] if findings else None
+    dominant = bool(top and (top.get("share_of_itemised") or 0) >= DOMINANT_BACKER_SHARE)
+
+    return PatternMatch(
+        pattern_name="committee_backers",
+        title="Who Funds This Committee",
+        risk_level="INFO",
+        status="ACTIVE",
+        description=(
+            "Aggregates the itemised money into a committee by "
+            "contributor. This is the half of the picture missing when "
+            "a committee is only ever seen spending: an outside group "
+            "running advertisements is spending someone's money, and "
+            "who that someone is rarely appears in the advertisement. "
+            "Where one backer supplies most of the funding, the "
+            "committee is better described as that backer's vehicle "
+            "than as an independent actor — and that is a factual "
+            "reading of the filings, not an accusation."
+        ),
+        findings=findings,
+        stats={
+            "committee_id": committee_id,
+            "committee_name": info.get("name") or committee_name,
+            "committee_type": info.get("committee_type_full"),
+            "designation": info.get("designation_full"),
+            "two_year_transaction_period": two_year_transaction_period,
+            "itemised_total": round(itemised, 2),
+            "itemised_receipts": len(rows),
+            "distinct_backers": len(findings),
+            "top_backer": top["contributor"] if top else None,
+            "top_backer_amount": top["amount"] if top else None,
+            "top_backer_share": top.get("share_of_itemised") if top else None,
+            "single_backer_dominant": dominant,
+            "institutional_share": (
+                round(100 * sum(e["amount"] for e in findings
+                                if e["kind"] != "individual") / itemised, 2)
+                if itemised else None
+            ),
+            "kind_breakdown": {
+                kind: round(sum(e["amount"] for e in findings if e["kind"] == kind), 2)
+                for kind in ("organisation", "committee", "individual")
+            },
+        },
+        warnings=[
+            "Only itemised receipts are counted. Unitemised small-dollar "
+            "money is real and is not here, so shares are shares of the "
+            "itemised total rather than of everything raised.",
+            "A committee funding another committee is disclosed, but "
+            "money reaching this one through a 501(c)(4) is not — the "
+            "donor behind that is not required to be named anywhere.",
+            "Funding a committee is lawful, and so is a committee "
+            "spending nearly all of one donor's money. What the top-backer "
+            "share supports is describing whose vehicle a committee is, "
+            "not alleging anything about it.",
+            "Money in cannot be matched to money out. A committee's "
+            "receipts are commingled, so no contribution here can be "
+            "traced to any particular expenditure the committee made.",
+        ] + tracker.warnings,
+    )

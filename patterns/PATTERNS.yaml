@@ -282,6 +282,48 @@ patterns:
           ratio actionable, and reading the subject label as though it
           did was the error this entry corrects.
 
+  committee_backers:
+    status: SUPPORTED
+    note: >-
+      Who funds a committee, aggregated by contributor with each
+      backer's share of the itemised total.
+
+      Exists because every other pattern here watches money leave. An
+      outside group running advertisements is spending somebody's
+      money, and the advertisement never says whose — so a graph built
+      only from expenditures shows the spending and hides the funder.
+      That is the half a reader actually wants.
+
+      Whether a backer is an organisation, another committee or an
+      individual comes from the filer's own `entity_type` field rather
+      than from the name. Guessing from the name fails on exactly the
+      names that matter: a keyword classifier reads "CENTER FORWARD"
+      and "CHAIN BRIDGE BANK" as people, and both are organisations.
+
+      Where one backer supplies most of the money the committee is
+      better described as that backer's vehicle than as an independent
+      actor. That is a factual reading of the filings and the threshold
+      is deliberately high, because the description is doing real work
+      in a sentence like "a super PAC backed by X".
+
+      What it cannot do is join money in to money out. Receipts are
+      commingled, so no contribution can be traced to any particular
+      expenditure the committee made — the backer edge and the
+      expenditure edge stay separate and are never summed.
+    citations:
+      - source: ti_political_finance_standards
+        stance: supports
+        because: >-
+          Transparency and clean money are two of the six principles.
+          Naming who funds a spender is the disclosure those principles
+          exist to produce, and the filings already carry it.
+      - source: oecd_lobbying_21c
+        stance: limits
+        because: >-
+          Indirect routes go unrecorded. Money reaching a committee
+          through a 501(c)(4) names no donor anywhere, so a backer list
+          is a floor and its silence is not evidence of absence.
+
 # Planned but not built. Recorded with their grounding so the decision
 # is informed before the work starts.
 proposed:

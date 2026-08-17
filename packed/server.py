@@ -110,6 +110,9 @@ async def _build_connection_graph(tracker, arguments: dict) -> dict:
     if committee_id:
         if fec_client is None:
             return {"error": "OpenFEC is not configured — set OPENFEC_API_KEY"}
+        matches.append(await patterns_module.detect_committee_backers(
+            fec_client, committee_id=committee_id, two_year_transaction_period=cycle,
+        ))
         matches.append(await patterns_module.detect_industry_concentration(
             fec_client, congress_client, committee_id=committee_id,
             two_year_transaction_period=cycle,
@@ -124,9 +127,21 @@ async def _build_connection_graph(tracker, arguments: dict) -> dict:
     if candidate_id:
         if fec_client is None:
             return {"error": "OpenFEC is not configured — set OPENFEC_API_KEY"}
-        matches.append(await patterns_module.detect_common_vendor_overlap(
+        overlap = await patterns_module.detect_common_vendor_overlap(
             fec_client, candidate_id=candidate_id, two_year_transaction_period=cycle,
-        ))
+        )
+        matches.append(overlap)
+        # An outside group spending to elect someone is spending
+        # somebody's money, and who that is never appears in the
+        # advertisement. Without this hop the graph shows the spending
+        # and hides the funder, which is the half that matters.
+        for finding in overlap.findings[:int(arguments.get("max_backer_traces") or 4)]:
+            spender = finding.get("outside_committee_id")
+            if spender:
+                matches.append(await patterns_module.detect_committee_backers(
+                    fec_client, committee_id=spender,
+                    two_year_transaction_period=cycle,
+                ))
     if employer:
         if fec_client is None:
             return {"error": "OpenFEC is not configured — set OPENFEC_API_KEY"}
@@ -875,6 +890,33 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="pattern_committee_backers",
+            description=(
+                "Aggregate the itemised money into a committee by "
+                "contributor — who funds it. This is the half of the "
+                "picture missing when a committee is only seen "
+                "spending: an outside group running advertisements is "
+                "spending someone's money, and who that is does not "
+                "appear in the advertisement. Reports each backer's "
+                "share, whether they are an organisation, another "
+                "committee or an individual (from the filer's own "
+                "entity_type, not guessed from the name), and flags "
+                "where one backer supplies most of the funding — which "
+                "is what makes 'a super PAC backed by X' a factual "
+                "description rather than loose talk."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "committee_id": {"type": "string", "description": "FEC committee ID (optional if committee_name given)"},
+                    "committee_name": {"type": "string", "description": "Committee name to resolve (optional if committee_id given)"},
+                    "two_year_transaction_period": {"type": "integer", "description": "Election cycle, e.g. 2026 (optional)"},
+                    "min_amount": {"type": "number", "description": "Ignore backers giving less than this in total (optional)"},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
             name="graph_connections",
             description=(
                 "Build a connection graph across the detection patterns "
@@ -904,6 +946,7 @@ async def list_tools() -> list[Tool]:
                         "description": "Two node IDs to find every route between, e.g. ['fec:C00903039','fec:C00799031'] (optional)",
                     },
                     "max_hops": {"type": "integer", "description": "Longest route to search for (optional, default 4)"},
+                    "max_backer_traces": {"type": "integer", "description": "How many outside spenders to also trace the funders of (optional, default 4)"},
                     "export_path": {"type": "string", "description": "Write a self-contained interactive HTML page here (optional)"},
                 },
                 "required": [],
@@ -973,6 +1016,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     if name == "pattern_common_vendor_overlap" and fec_client is None:
         return _not_configured("OpenFEC", "OPENFEC_API_KEY")
     if name == "pattern_candidate_support_ratio" and fec_client is None:
+        return _not_configured("OpenFEC", "OPENFEC_API_KEY")
+    if name == "pattern_committee_backers" and fec_client is None:
         return _not_configured("OpenFEC", "OPENFEC_API_KEY")
 
     tracker = ServiceTracker()
@@ -1322,6 +1367,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 cycle=arguments.get("cycle"),
                 min_receipts=arguments.get("min_receipts", patterns_module.SUPPORT_RATIO_MIN_RECEIPTS),
                 low_support_threshold=arguments.get("low_support_threshold", patterns_module.SUPPORT_RATIO_LOW_THRESHOLD),
+            )
+            result = _pattern_result(match)
+
+        elif name == "pattern_committee_backers":
+            match = await patterns_module.detect_committee_backers(
+                fec_client,
+                committee_id=arguments.get("committee_id"),
+                committee_name=arguments.get("committee_name"),
+                two_year_transaction_period=arguments.get("two_year_transaction_period"),
+                min_amount=arguments.get("min_amount", 0.0),
             )
             result = _pattern_result(match)
 

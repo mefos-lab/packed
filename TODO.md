@@ -642,6 +642,45 @@ Remaining work on this:
       truth is "that pattern was not run". The overview narrative is generated
       from the data, so it never promises findings it cannot list.
 
+- [x] **`committee_backers` built and live-verified** (2026-08-17), prompted by
+      needing to draw a claim of the form "a super PAC backed by X".
+
+      Every other pattern watched money leave. An outside group running
+      advertisements is spending somebody's money and the advertisement never
+      says whose, so a graph built only from expenditures showed the spending
+      and hid the funder. `graph_connections` now traces the funders of any
+      outside spender it finds, which makes the chain draw automatically.
+
+      Live: **AIPAC — funded $30,000,000 → United Democracy Project — spent
+      independently to support $16,471,909 → Haley Stevens for Senate.** Two
+      hops, both disclosed, never summed. Eight route variants collapse to one
+      independent route because all run through UDP.
+
+      **Backer type comes from the filing's `entity_type`, not the name.** A
+      keyword classifier reads "CENTER FORWARD" and "CHAIN BRIDGE BANK" as
+      people; both are organisations and the filer already declared it. This is
+      an onoma limitation worth knowing about — `classify` has no way to tell a
+      two-word organisation from a person — but the right fix here was to stop
+      guessing when the authoritative field exists.
+
+      `single_backer_dominant` is what makes "backed by X" factual rather than
+      loose: A Stronger Michigan is 98.6% Center Forward, so it is that
+      organisation's vehicle. UDP at 36.1% AIPAC is not, and is not flagged.
+
+      The pattern returns every backer; the **graph draws only those at 1%+**,
+      capped at 20. Without that filter one candidate produced 723 nodes, 715
+      of them individual donors — a hairball that hides the finding.
+
+- [ ] **Verify a published claim end to end as a worked example.** A Guardian
+      column described "over $60m" funding Haley Stevens with "nearly half"
+      from an AIPAC-backed super PAC. Measured: $53.1M in independent
+      expenditures supporting her, of which UDP (the AIPAC-backed one) is
+      35.7%. The largest single spender is A Stronger Michigan at 50.5%, which
+      is Center Forward's vehicle, not AIPAC's. The structure of the claim
+      holds; the fraction depends on the denominator and on which vehicle is
+      meant. Worth writing up in the README as a worked example, since it shows
+      the tool doing the thing it exists for.
+
 - [ ] Remaining mined candidates are all judged not worth building as
       specified: `timing_correlation` and `foreign_national_contributions` are
       CONTESTED, `dual_role` is closed in favour of `revolving_door`, and

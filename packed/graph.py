@@ -543,6 +543,80 @@ def annotate_candidate_support_ratio(graph: ConnectionGraph, match) -> None:
     ))
 
 
+# A large committee has hundreds of small backers. The pattern returns
+# all of them, because the tail is real; the graph draws only material
+# ones, because 700 donor nodes is a hairball that hides the finding
+# rather than showing it. Share of the committee's itemised total is the
+# right filter — a fixed dollar floor means different things to a
+# $100,000 committee and an $80,000,000 one.
+BACKER_GRAPH_MIN_SHARE = 1.0
+BACKER_GRAPH_MAX = 20
+
+
+def add_committee_backers(graph: ConnectionGraph, match) -> None:
+    """Who funds a committee — the money-in side.
+
+    This is the edge that makes "a super PAC backed by X" drawable. Both
+    hops are disclosed and both carry amounts, but they are separate
+    edges and never one: what a backer gave the committee and what the
+    committee later spent are different sums, and the second cannot be
+    attributed to the first.
+    """
+    cid = match.stats.get("committee_id")
+    if not cid:
+        return
+    committee = graph.add_node(Node(
+        committee_node_id(cid),
+        match.stats.get("committee_name") or cid,
+        "committee",
+        {
+            "designation": match.stats.get("designation"),
+            "itemised_total": match.stats.get("itemised_total"),
+            "top_backer": match.stats.get("top_backer"),
+            "top_backer_share": match.stats.get("top_backer_share"),
+            "single_backer_dominant": match.stats.get("single_backer_dominant"),
+        },
+    ))
+
+    material = [
+        f for f in match.findings
+        if (f.get("share_of_itemised") or 0) >= BACKER_GRAPH_MIN_SHARE
+    ][:BACKER_GRAPH_MAX]
+    graph.nodes[committee] = Node(
+        committee, graph.nodes[committee].label, graph.nodes[committee].kind,
+        {**graph.nodes[committee].detail,
+         "backers_shown": len(material),
+         "backers_total": len(match.findings)},
+    )
+
+    for finding in material:
+        name = finding.get("contributor")
+        if not name:
+            continue
+        kind = finding.get("kind")
+        if finding.get("contributor_committee_id"):
+            backer_id = committee_node_id(finding["contributor_committee_id"])
+            node_kind = "committee"
+        elif kind == "individual":
+            backer_id = person_node_id(name)
+            node_kind = "contributor"
+        else:
+            backer_id = org_node_id(name, "org")
+            node_kind = "backer"
+        backer = graph.add_node(Node(
+            backer_id, name, node_kind,
+            {"share_of_committee_itemised": finding.get("share_of_itemised")},
+        ))
+        graph.add_edge(Edge(
+            backer, committee, ATTRIBUTABLE, "funded", "committee_backers",
+            amount=finding.get("amount"),
+            detail=(
+                f"{finding.get('share_of_itemised')}% of the committee's "
+                f"itemised receipts"
+            ),
+        ))
+
+
 ADAPTERS = {
     "industry_concentration": add_industry_concentration,
     "lobbying_money_to_committee_seats": add_lobbying_money_to_committee_seats,
@@ -552,6 +626,7 @@ ADAPTERS = {
     "employer_contribution_clusters": add_employer_contribution_clusters,
     "common_vendor_overlap": add_common_vendor_overlap,
     "candidate_support_ratio": annotate_candidate_support_ratio,
+    "committee_backers": add_committee_backers,
 }
 
 

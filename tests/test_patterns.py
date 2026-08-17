@@ -1351,3 +1351,135 @@ class TestDetectCandidateSupportRatio:
         stances = {c["source"]: c["stance"] for c in r.provenance["citations"]}
         assert stances["fec_murs"] == "limits"
         assert stances["ti_political_finance_standards"] == "supports"
+
+
+# =============================================================================
+# detect_committee_backers tests
+# =============================================================================
+
+from packed.patterns import detect_committee_backers
+
+
+def _receipt(name, amount, entity_type="IND"):
+    return {
+        "contributor_name": name,
+        "contribution_receipt_amount": amount,
+        "entity_type": entity_type,
+    }
+
+
+def _make_backers_fec(receipts, committee=None):
+    routes = {
+        "/schedules/schedule_a/": {"json": {
+            "results": receipts, "pagination": {"last_indexes": {}}}},
+        "/committee/": {"json": {"results": [committee or
+            {"committee_id": "C0TEST", "name": "TEST PAC",
+             "designation_full": "Unauthorized"}]}},
+        "/committees/": {"json": {"results": [
+            {"committee_id": "C0FOUND", "name": "FOUND PAC"}]}},
+    }
+    fec = OpenFECClient(api_key="test_key")
+    fec._client = httpx.AsyncClient(
+        base_url="https://api.open.fec.gov/v1", transport=MockTransport(routes),
+    )
+    return fec
+
+
+class TestDetectCommitteeBackers:
+    @pytest.mark.asyncio
+    async def test_aggregates_by_contributor_with_shares(self):
+        fec = _make_backers_fec([
+            _receipt("BIG GIVER", 30_000_000.0, "ORG"),
+            _receipt("BIG GIVER", 10_000_000.0, "ORG"),
+            _receipt("SMALL GIVER", 10_000_000.0, "IND"),
+        ])
+        r = await detect_committee_backers(fec, committee_id="C0TEST")
+        assert r.status == "ACTIVE"
+        top = r.findings[0]
+        assert top["contributor"] == "BIG GIVER"
+        assert top["amount"] == 40_000_000.0
+        assert top["receipts"] == 2
+        assert top["share_of_itemised"] == 80.0
+
+    @pytest.mark.asyncio
+    async def test_kind_comes_from_the_filing_not_the_name(self):
+        """A keyword classifier reads 'CENTER FORWARD' and 'CHAIN BRIDGE
+        BANK' as people. Both are organisations, and the filer already
+        said so in entity_type."""
+        fec = _make_backers_fec([
+            _receipt("CENTER FORWARD", 10_900_000.0, "ORG"),
+            _receipt("CHAIN BRIDGE BANK", 2_000_000.0, "ORG"),
+            _receipt("MICHIGAN FORWARD 2026", 150_000.0, "PAC"),
+            _receipt("SABAN, HAIM", 2_000_000.0, "IND"),
+        ])
+        r = await detect_committee_backers(fec, committee_id="C0TEST")
+        kinds = {f["contributor"]: f["kind"] for f in r.findings}
+        assert kinds["CENTER FORWARD"] == "organisation"
+        assert kinds["CHAIN BRIDGE BANK"] == "organisation"
+        assert kinds["MICHIGAN FORWARD 2026"] == "committee"
+        assert kinds["SABAN, HAIM"] == "individual"
+        assert r.stats["institutional_share"] == 86.71
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_name_when_the_filing_declares_nothing(self):
+        fec = _make_backers_fec([
+            {"contributor_name": "SOME ACTION FUND", "contribution_receipt_amount": 100.0},
+        ])
+        r = await detect_committee_backers(fec, committee_id="C0TEST")
+        assert r.findings[0]["kind"] == "organisation"
+
+    @pytest.mark.asyncio
+    async def test_a_dominant_backer_is_flagged(self):
+        """What makes 'a super PAC backed by X' a factual description
+        rather than loose talk."""
+        fec = _make_backers_fec([
+            _receipt("CENTER FORWARD", 10_900_000.0, "ORG"),
+            _receipt("SOMEONE ELSE", 150_000.0, "PAC"),
+        ])
+        r = await detect_committee_backers(fec, committee_id="C0TEST")
+        assert r.stats["single_backer_dominant"] is True
+        assert r.stats["top_backer"] == "CENTER FORWARD"
+
+    @pytest.mark.asyncio
+    async def test_spread_funding_is_not_flagged_as_dominant(self):
+        fec = _make_backers_fec([
+            _receipt("A", 30.0, "ORG"), _receipt("B", 30.0, "IND"),
+            _receipt("C", 40.0, "IND"),
+        ])
+        r = await detect_committee_backers(fec, committee_id="C0TEST")
+        assert r.stats["single_backer_dominant"] is False
+
+    @pytest.mark.asyncio
+    async def test_min_amount_filters_the_tail(self):
+        fec = _make_backers_fec([
+            _receipt("BIG", 1_000_000.0, "ORG"), _receipt("TINY", 5.0, "IND"),
+        ])
+        r = await detect_committee_backers(fec, committee_id="C0TEST", min_amount=1000.0)
+        assert [f["contributor"] for f in r.findings] == ["BIG"]
+
+    @pytest.mark.asyncio
+    async def test_resolves_a_committee_by_name(self):
+        fec = _make_backers_fec([_receipt("A", 10.0)])
+        r = await detect_committee_backers(fec, committee_name="found")
+        assert r.stats["committee_id"] == "C0FOUND"
+
+    @pytest.mark.asyncio
+    async def test_requires_an_identifier(self):
+        fec = _make_backers_fec([])
+        r = await detect_committee_backers(fec)
+        assert r.status == "ERROR"
+
+    @pytest.mark.asyncio
+    async def test_always_warns_that_money_in_cannot_be_matched_to_money_out(self):
+        """The whole risk of this pattern is a reader concluding that a
+        backer's contribution funded a particular advertisement."""
+        fec = _make_backers_fec([])
+        r = await detect_committee_backers(fec, committee_id="C0TEST")
+        assert any("commingled" in w for w in r.warnings)
+        assert any("itemised" in w for w in r.warnings)
+
+    @pytest.mark.asyncio
+    async def test_carries_provenance(self):
+        fec = _make_backers_fec([])
+        r = await detect_committee_backers(fec, committee_id="C0TEST")
+        assert r.provenance["status"] == "SUPPORTED"
